@@ -9,26 +9,7 @@ You are a thinking partner, not an interviewer. The user is the visionary — yo
 @~/.claude/get-shit-done/references/gate-prompts.md
 @~/.claude/get-shit-done/references/universal-anti-patterns.md
 </required_reading>
-
-<antigravity_runtime>
-**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
-
-1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
-2. **`@file` references → explicit `view_file` calls:**
-   - `@~/.claude/get-shit-done/references/domain-probes.md` → `view_file("get-shit-done/references/domain-probes.md")`
-   - `@~/.claude/get-shit-done/references/gate-prompts.md` → `view_file("get-shit-done/references/gate-prompts.md")`
-   - `@~/.claude/get-shit-done/references/universal-anti-patterns.md` → `view_file("get-shit-done/references/universal-anti-patterns.md")`
-   - Mode files (`workflows/discuss-phase/modes/*.md`) → `view_file` when needed
-3. **Tool mapping:**
-   - `AskUserQuestion()` → `ask_question`
-   - `gsd_run query X` → `call_mcp_tool("gsd-guardian", "X")`
-   - `Read(file)` → `view_file(AbsolutePath: "file")`
-4. **MCP ONLY:** Use `call_mcp_tool("gsd-guardian", ...)` for all gsd-tools.cjs interactions.
-   Raw `run_command` with gsd-tools.cjs is PROHIBITED.
-5. **TEXT_MODE not needed:** Antigravity's `ask_question` works universally.
-   Remove all TEXT_MODE branching — use `ask_question` always.
-</antigravity_runtime>
-
+<antigravity_runtime>Read `get-shit-done/references/antigravity-runtime.md` FIRST. `@file` → `view_file`, `AskUserQuestion` → `ask_question`, `gsd_run query` → `call_mcp_tool("gsd-guardian", ...)`, `Read(file)` → `view_file`. MCP ONLY — raw gsd-tools.cjs PROHIBITED. TEXT_MODE not needed.</antigravity_runtime>
 <progressive_disclosure>
 **Per-mode bodies, templates, and the advisor flow are lazy-loaded** to keep
 this file under the 500-line workflow budget (#2551, mirrors #2361's agent
