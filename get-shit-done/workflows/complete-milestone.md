@@ -14,6 +14,20 @@ Mark a shipped version (v1.0, v1.1, v2.0) as complete. Creates historical record
 
 </required_reading>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **No subagents in this workflow.** Complete-milestone is orchestrator-only.
+3. **Tool mapping:**
+   - `AskUserQuestion()` → `ask_question`
+   - `gsd_run query X` → `call_mcp_tool("gsd-guardian", "X")`
+   - Git commands → `run_command` (exempt from MCP-only rule)
+   - `@file` references → explicit `view_file` calls
+4. **MCP ONLY for gsd-tools.cjs:** Use `call_mcp_tool("gsd-guardian", ...)` for all gsd-tools.cjs interactions.
+   Raw `run_command` with gsd-tools.cjs is PROHIBITED. Git commands ARE allowed via `run_command`.
+</antigravity_runtime>
+
 <archival_behavior>
 
 When a milestone completes:

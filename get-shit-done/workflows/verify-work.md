@@ -10,6 +10,23 @@ Valid GSD subagent types (use exact names — do not fall back to 'general-purpo
 - gsd-plan-checker — Reviews plan quality before execution
 </available_agent_types>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **Subagent spawning (MANDATORY — do NOT inline):**
+   - `define_subagent` for: gsd-planner, gsd-plan-checker
+   - `invoke_subagent` with `Workspace: "inherit"` for both planner and plan-checker
+   - Agent definitions are in `agents/gsd-*.md` — read them to construct system_prompt
+3. **Tool mapping:**
+   - `Agent()` → `invoke_subagent` (MANDATORY — do NOT inline)
+   - `AskUserQuestion()` → `ask_question`
+   - `gsd_run query X` → `call_mcp_tool("gsd-guardian", "X")`
+   - `@file` references → explicit `view_file` calls
+4. **MCP ONLY:** Use `call_mcp_tool("gsd-guardian", ...)` for all gsd-tools.cjs interactions.
+5. **Revision loop:** Planner + checker spawns (up to 3 iterations) must ALL use `invoke_subagent`.
+</antigravity_runtime>
+
 <philosophy>
 **Show expected, ask if reality matches.**
 

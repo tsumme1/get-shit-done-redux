@@ -6,6 +6,19 @@ Create a pull request from completed phase/milestone work, generate a rich PR bo
 Read all files referenced by the invoking prompt's execution_context before starting.
 </required_reading>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **No subagents in this workflow.** Ship is orchestrator-only.
+3. **Tool mapping:**
+   - `AskUserQuestion()` → `ask_question`
+   - `gsd_run query X` → `call_mcp_tool("gsd-guardian", "X")`
+   - Git/gh CLI commands → `run_command` (these are exempt from MCP-only rule)
+4. **MCP ONLY for gsd-tools.cjs:** Use `call_mcp_tool("gsd-guardian", ...)` for all gsd-tools.cjs interactions.
+   Raw `run_command` with gsd-tools.cjs is PROHIBITED. Git and gh commands ARE allowed via `run_command`.
+</antigravity_runtime>
+
 <process>
 
 <step name="initialize">

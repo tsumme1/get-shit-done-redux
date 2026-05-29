@@ -20,6 +20,29 @@ Valid GSD subagent types (use exact names — do not fall back to 'general-purpo
 - gsd-plan-checker — Reviews plan quality before execution
 </available_agent_types>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **Subagent spawning (MANDATORY — do NOT inline):**
+   - `define_subagent` for: gsd-phase-researcher, gsd-pattern-mapper, gsd-planner, gsd-plan-checker
+   - `invoke_subagent` with `Workspace: "branch"` for researcher and pattern-mapper
+   - `invoke_subagent` with `Workspace: "inherit"` for planner and plan-checker
+   - Agent definitions are in `agents/gsd-*.md` — read them to construct system_prompt
+3. **Tool mapping:**
+   - `Agent()` → `invoke_subagent` (MANDATORY — do NOT inline)
+   - `AskUserQuestion()` → `ask_question`
+   - `gsd_run query X` → `call_mcp_tool("gsd-guardian", "X")`
+   - `@file` references → explicit `view_file` calls
+4. **ENFORCEMENT:** After each subagent spawn, verify via:
+   `bash get-shit-done/scripts/enforce-subagent-spawn.sh "<agent_type>"`
+5. **MCP ONLY:** Use `call_mcp_tool("gsd-guardian", ...)` for all gsd-tools.cjs interactions.
+   Raw `run_command` with gsd-tools.cjs is PROHIBITED.
+6. **Revision loop:** Plan-checker spawn + revision re-spawn (up to 3 iterations) must ALL
+   use `invoke_subagent`. Each iteration spawns a new subagent instance.
+</antigravity_runtime>
+
+
 <process>
 
 ## 0. Git Branch Invariant

@@ -13,6 +13,26 @@ Valid GSD subagent types (use exact names — do not fall back to 'general-purpo
 - gsd-roadmapper — Creates phased execution roadmaps
 </available_agent_types>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **Subagent spawning:**
+   - Use `define_subagent` to register agent types (gsd-project-researcher, gsd-research-synthesizer, gsd-roadmapper)
+   - Use `invoke_subagent` with `Workspace: "branch"` for parallel research agents
+   - Use `invoke_subagent` with multiple Subagents entries for parallel execution (4 researchers)
+   - Agent definitions are in `agents/gsd-*.md` — read them to construct system_prompt
+3. **Tool mapping:**
+   - `Agent()` → `invoke_subagent` (MANDATORY — do NOT inline)
+   - `AskUserQuestion()` → `ask_question`
+   - `gsd_run query X` → `call_mcp_tool("gsd-guardian", "X")`
+   - `@file` references → explicit `view_file` calls
+4. **ENFORCEMENT:** After each subagent spawn, verify via:
+   `bash get-shit-done/scripts/enforce-subagent-spawn.sh "<agent_type>"`
+5. **MCP ONLY:** Use `call_mcp_tool("gsd-guardian", ...)` for all gsd-tools.cjs interactions.
+   Raw `run_command` with gsd-tools.cjs is PROHIBITED.
+</antigravity_runtime>
+
 <auto_mode>
 
 ## Auto Mode Detection

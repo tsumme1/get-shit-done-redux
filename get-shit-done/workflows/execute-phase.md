@@ -14,6 +14,13 @@ Orchestrator coordinates, not executes. Each subagent loads the full execute-pla
   instead of spawning parallel agents. Only attempt parallel spawning if the user
   explicitly requests it — and in that case, rely on the spot-check fallback in step 3
   to detect completion.
+- **Antigravity 2.0:** Uses `define_subagent` + `invoke_subagent` with `Workspace: "branch"` for
+  worktree-equivalent isolation. Parallel spawning is achieved by passing multiple entries in the
+  `invoke_subagent` `Subagents` array. The system automatically notifies the orchestrator when
+  each subagent completes — no polling needed. **ENFORCEMENT: Do NOT inline plan execution.**
+  Every plan MUST be executed by a spawned `gsd-executor` subagent. Use `call_mcp_tool("gsd-guardian", ...)`
+  for ALL gsd-tools.cjs interactions — raw `run_command` with gsd-tools.cjs is prohibited.
+  Read `get-shit-done/references/antigravity-runtime.md` for full tool mapping.
 - **Other runtimes:** If `Agent`/`agent` tool is unavailable, use sequential inline execution as the
   fallback. Check for tool availability at runtime rather than assuming based on runtime name.
 
@@ -22,6 +29,7 @@ the orchestrator never receives the completion signal, treat it as successful ba
 and continue to the next wave/plan. Never block indefinitely waiting for a signal — always verify
 via filesystem and git state.
 </runtime_compatibility>
+
 
 <required_reading>
 Read STATE.md before any operation to load project context.
