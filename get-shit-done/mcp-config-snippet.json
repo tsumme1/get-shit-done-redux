@@ -1,0 +1,11 @@
+{
+  "gsd-guardian": {
+    "command": "node",
+    "args": [
+      "./get-shit-done/bin/gsd-guardian-server.cjs"
+    ],
+    "env": {
+      "GSD_PROJECT_ROOT": "."
+    }
+  }
+}
