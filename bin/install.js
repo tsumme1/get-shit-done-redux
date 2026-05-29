@@ -2177,23 +2177,71 @@ function convertClaudeToAntigravityContent(content, isGlobal = false) {
   return c;
 }
 
+function getAntigravitySkillAdapterHeader(skillName) {
+  return `<antigravity_skill_adapter>
+## A. Skill Invocation
+- This skill is invoked when the user mentions \`${skillName}\` or describes a task matching this skill.
+- Treat all user text after the skill mention as \`{{GSD_ARGS}}\`.
+- If no arguments are present, treat \`{{GSD_ARGS}}\` as empty.
+
+## B. User Prompting
+When the workflow needs user input, prompt the user conversationally:
+- Present options as a numbered list in your response text
+- Ask the user to reply with their choice
+- For multi-select, ask for comma-separated numbers
+
+## C. Tool Usage
+Use these Antigravity tools when executing GSD workflows:
+- \`run_command\` for running shell commands and terminal operations
+- \`replace_file_content\` or \`multi_replace_file_content\` for editing existing files
+- \`view_file\` for reading files and viewing directories
+- \`write_to_file\` for creating new files
+- \`grep_search\` for searching code or query matching lines
+- \`search_web\`, \`read_url_content\` for web queries
+- \`ask_question\` or standard conversational prompting for user choice
+- \`list_dir\` for listing directory contents
+
+## D. Subagent Spawning (Parallel/Isolated)
+When the workflow needs to spawn a subagent:
+- You MUST use \`invoke_subagent\` tool with the \`Subagents\` array argument!
+- Example structure to run an agent:
+  \`\`\`javascript
+  invoke_subagent(
+    Subagents=[
+      {
+        TypeName="gsd-executor",
+        Role="Execute plan 01-01",
+        Prompt="<objective>...</objective>",
+        Workspace="share"
+      }
+    ]
+  )
+  \`\`\`
+- If the workflow specifies \`isolation="worktree"\`, map it to \`Workspace="share"\` (isolated git worktree branch). Otherwise, use \`Workspace="inherit"\` (same workspace).
+- Never do execution or planning inline when a subagent is dispatched in the background — wait for the subagent to finish and report back!
+</antigravity_skill_adapter>`;
+}
+
 /**
  * Convert a Claude command (.md) to an Antigravity skill (SKILL.md).
- * Transforms frontmatter to minimal name + description only.
- * Body passes through with path/command conversions applied.
+ * Prepend the Antigravity Skill Adapter header to the skill body,
+ * matching the Cursor/Windsurf converter layout.
  */
 function convertClaudeCommandToAntigravitySkill(content, skillName, isGlobal = false) {
   const converted = convertClaudeToAntigravityContent(content, isGlobal);
   const { frontmatter, body } = extractFrontmatterAndBody(converted);
-  if (!frontmatter) return converted;
+  let description = `Run GSD workflow ${skillName}.`;
+  if (frontmatter) {
+    const maybeDescription = extractFrontmatterField(frontmatter, 'description');
+    if (maybeDescription) {
+      description = maybeDescription;
+    }
+  }
+  description = toSingleLine(description);
+  const shortDescription = description.length > 180 ? `${description.slice(0, 177)}...` : description;
+  const adapter = getAntigravitySkillAdapterHeader(skillName);
 
-  const name = skillName || extractFrontmatterField(frontmatter, 'name') || 'unknown';
-  const description = extractFrontmatterField(frontmatter, 'description') || '';
-
-  // #2876: quote description so YAML flow indicators in the source
-  // (e.g. `[BETA] …`) don't break downstream frontmatter parsers.
-  const fm = `---\nname: ${name}\ndescription: ${yamlQuote(description)}\n---`;
-  return `${fm}\n${body}`;
+  return `---\nname: ${yamlIdentifier(skillName)}\ndescription: ${yamlQuote(shortDescription)}\n---\n\n${adapter}\n\n${body.trimStart()}`;
 }
 
 /**
