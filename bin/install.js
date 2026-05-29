@@ -2228,7 +2228,11 @@ When the workflow needs to spawn a subagent:
  * matching the Cursor/Windsurf converter layout.
  */
 function convertClaudeCommandToAntigravitySkill(content, skillName, isGlobal = false) {
-  const converted = convertClaudeToAntigravityContent(content, isGlobal);
+  let resolvedIsGlobal = isGlobal;
+  if (typeof isGlobal === 'string') {
+    resolvedIsGlobal = process.argv.includes('--global') || process.argv.includes('-g');
+  }
+  const converted = convertClaudeToAntigravityContent(content, resolvedIsGlobal);
   const { frontmatter, body } = extractFrontmatterAndBody(converted);
   let description = `Run GSD workflow ${skillName}.`;
   if (frontmatter) {
@@ -2249,7 +2253,11 @@ function convertClaudeCommandToAntigravitySkill(content, skillName, isGlobal = f
  * Uses Gemini tool names since Antigravity runs on Gemini 3 backend.
  */
 function convertClaudeAgentToAntigravityAgent(content, isGlobal = false) {
-  const converted = convertClaudeToAntigravityContent(content, isGlobal);
+  let resolvedIsGlobal = isGlobal;
+  if (typeof isGlobal === 'string') {
+    resolvedIsGlobal = process.argv.includes('--global') || process.argv.includes('-g');
+  }
+  const converted = convertClaudeToAntigravityContent(content, resolvedIsGlobal);
   const { frontmatter, body } = extractFrontmatterAndBody(converted);
   if (!frontmatter) return converted;
 
