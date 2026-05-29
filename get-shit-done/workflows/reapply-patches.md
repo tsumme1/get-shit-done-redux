@@ -6,6 +6,13 @@ After a GSD update wipes and reinstalls files, this workflow merges user's previ
 
 **Critical invariant:** Every file in `gsd-local-patches/` was backed up because the installer's hash comparison detected it was modified. The workflow must NEVER conclude "no custom content" for any backed-up file — that is a logical contradiction. When in doubt, classify as CONFLICT requiring user review, not SKIP.
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. No translation required. This workflow uses only standard tools.
+</antigravity_runtime>
+
 <process>
 
 ## Step 1: Detect backed-up patches

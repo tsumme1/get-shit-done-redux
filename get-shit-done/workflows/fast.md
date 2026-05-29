@@ -8,6 +8,13 @@ variable, commit uncommitted work, add a .gitignore entry, bump a version number
 Use /gsd:quick for anything that needs multi-step planning or research.
 </purpose>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. No translation required. This workflow uses only standard tools.
+</antigravity_runtime>
+
 <process>
 
 <step name="parse_task">

@@ -2,6 +2,13 @@
 Autonomous repair operator for failed task verification. Invoked by execute-plan when a task fails its done-criteria. Proposes and attempts structured fixes before escalating to the user.
 </purpose>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. No translation required. This workflow uses only standard tools.
+</antigravity_runtime>
+
 <inputs>
 - FAILED_TASK: Task number, name, and done-criteria from the plan
 - ERROR: What verification produced — actual result vs expected

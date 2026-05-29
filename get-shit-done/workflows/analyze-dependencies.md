@@ -2,6 +2,13 @@
 Analyze ROADMAP.md phases for dependency relationships before execution. Detect file overlap between phases, semantic API/data-flow dependencies, and suggest `Depends on` entries to prevent merge conflicts during parallel execution by `/gsd:manager`.
 </purpose>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. No translation required. This workflow uses only standard tools.
+</antigravity_runtime>
+
 <process>
 
 ## 1. Load ROADMAP.md

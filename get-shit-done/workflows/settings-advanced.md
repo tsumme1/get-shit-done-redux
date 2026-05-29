@@ -14,6 +14,19 @@ current value; numeric-input answers that are non-numeric are rejected and re-pr
 Read all files referenced by the invoking prompt's execution_context before starting.
 </required_reading>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **No subagents in this workflow.**
+3. **Tool mapping:**
+   - `AskUserQuestion()` → `ask_question`
+   - `gsd_run query X` → `call_mcp_tool("gsd-guardian", "X")`
+   - `@file` references → explicit `view_file` calls
+4. **MCP ONLY:** Use `call_mcp_tool("gsd-guardian", ...)` for all gsd-tools.cjs interactions.
+   Raw `run_command` with gsd-tools.cjs is PROHIBITED.
+</antigravity_runtime>
+
 <process>
 
 <step name="ensure_and_load_config">

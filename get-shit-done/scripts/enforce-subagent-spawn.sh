@@ -42,8 +42,9 @@ if [ -n "$CONVERSATION_ID" ] && [ -f "${TRANSCRIPT_DIR}/${CONVERSATION_ID}/.syst
   LOG_FILE="${TRANSCRIPT_DIR}/${CONVERSATION_ID}/.system_generated/logs/transcript.jsonl"
   
   # Check both define_subagent and invoke_subagent
-  DEFINED=$(grep -c "define_subagent" "$LOG_FILE" 2>/dev/null || echo "0")
-  INVOKED=$(grep "invoke_subagent" "$LOG_FILE" 2>/dev/null | grep -ci "${EXPECTED}" 2>/dev/null || echo "0")
+  DEFINED=$(grep -c "define_subagent" "$LOG_FILE" 2>/dev/null || true)
+  DEFINED=${DEFINED:-0}
+  INVOKED=$(( $(grep "invoke_subagent" "$LOG_FILE" 2>/dev/null | grep -ci "${EXPECTED}" || true) + 0 ))
   
   if [ "$INVOKED" -gt 0 ]; then
     echo "✅ ENFORCEMENT PASSED: Subagent '${EXPECTED}' was invoked (${INVOKED} time(s), ${DEFINED} agent type(s) defined)"
@@ -53,12 +54,17 @@ fi
 
 # Strategy 3: If no transcript available, check for subagent artifacts
 # Subagents leave traces in the brain directory
+# Only soft-pass if the transcript also has SOME invoke_subagent evidence
 if [ -n "$CONVERSATION_ID" ]; then
-  SUBAGENT_DIRS=$(find "${TRANSCRIPT_DIR}" -maxdepth 1 -type d -newer "${TRANSCRIPT_DIR}/${CONVERSATION_ID}" 2>/dev/null | wc -l | tr -d ' ')
-  if [ "$SUBAGENT_DIRS" -gt 0 ]; then
-    echo "⚠️  ENFORCEMENT PARTIAL: Found ${SUBAGENT_DIRS} recent subagent conversation(s) but cannot confirm type '${EXPECTED}'"
-    echo "    Manual verification required — check manage_subagents output"
-    exit 0  # Soft pass — artifacts exist
+  HAS_ANY_INVOKE=$(grep -c "invoke_subagent" "$LOG_FILE" 2>/dev/null || true)
+  HAS_ANY_INVOKE=${HAS_ANY_INVOKE:-0}
+  if [ "$HAS_ANY_INVOKE" -gt 0 ]; then
+    SUBAGENT_DIRS=$(find "${TRANSCRIPT_DIR}" -maxdepth 1 -type d -newer "${TRANSCRIPT_DIR}/${CONVERSATION_ID}" 2>/dev/null | grep -v "/${CONVERSATION_ID}$" | wc -l | tr -d ' ')
+    if [ "$SUBAGENT_DIRS" -gt 0 ]; then
+      echo "⚠️  ENFORCEMENT PARTIAL: Found ${SUBAGENT_DIRS} recent subagent conversation(s) but cannot confirm type '${EXPECTED}'"
+      echo "    Manual verification required — check manage_subagents output"
+      exit 0  # Soft pass — artifacts exist and invoke_subagent was called
+    fi
   fi
 fi
 

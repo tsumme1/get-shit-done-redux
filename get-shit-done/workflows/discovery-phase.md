@@ -7,6 +7,15 @@ Called from plan-phase.md's mandatory_discovery step with a depth parameter.
 NOTE: For comprehensive ecosystem research ("how do experts build this"), use /gsd:plan-phase --research-phase instead, which produces RESEARCH.md.
 </purpose>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **Tool mapping:**
+   - `AskUserQuestion()` → `ask_question`
+   - `@file` references → explicit `view_file` calls
+</antigravity_runtime>
+
 <depth_levels>
 **This workflow supports three depth levels:**
 

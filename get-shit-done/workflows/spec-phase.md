@@ -5,6 +5,19 @@ Produces a SPEC.md with falsifiable requirements that discuss-phase treats as lo
 This workflow handles "what" and "why" — discuss-phase handles "how".
 </purpose>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **No subagents in this workflow.**
+3. **Tool mapping:**
+   - `AskUserQuestion()` → `ask_question`
+   - `gsd_run query X` → `call_mcp_tool("gsd-guardian", "X")`
+   - `@file` references → explicit `view_file` calls
+4. **MCP ONLY:** Use `call_mcp_tool("gsd-guardian", ...)` for all gsd-tools.cjs interactions.
+   Raw `run_command` with gsd-tools.cjs is PROHIBITED.
+</antigravity_runtime>
+
 <ambiguity_model>
 Score each dimension 0.0 (completely unclear) to 1.0 (crystal clear):
 

@@ -4,6 +4,13 @@ Power user mode for discuss-phase. Generates ALL questions upfront into a JSON s
 **When to use:** Large phases with many gray areas, or when users prefer to answer questions offline / asynchronously rather than interactively in the chat session.
 </purpose>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. No translation required. This workflow uses only standard tools.
+</antigravity_runtime>
+
 <trigger>
 This workflow executes when `--power` flag is present in ARGUMENTS to `/gsd:discuss-phase`.
 

@@ -8,6 +8,25 @@ Future: `--prd` mode (PRD extraction into PROJECT.md + REQUIREMENTS.md + ROADMAP
 
 ---
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **Subagent spawning:**
+   - Use `define_subagent` to register agent types before spawning
+   - Use `invoke_subagent` to launch subagents (MANDATORY — never inline agent work)
+   - Agent definitions are in `agents/gsd-*.md` — read them to construct system_prompt
+3. **Tool mapping:**
+   - `Agent()` → `invoke_subagent`
+   - `AskUserQuestion()` → `ask_question`
+   - `gsd_run query X` → `call_mcp_tool("gsd-guardian", "X")`
+   - `@file` references → explicit `view_file` calls
+4. **ENFORCEMENT:** After each subagent spawn, verify via:
+   `bash get-shit-done/scripts/enforce-subagent-spawn.sh "<agent_type>"`
+5. **MCP ONLY:** Use `call_mcp_tool("gsd-guardian", ...)` for all gsd-tools.cjs interactions.
+   Raw `run_command` with gsd-tools.cjs is PROHIBITED.
+</antigravity_runtime>
+
 <step name="banner">
 
 Display the stage banner:

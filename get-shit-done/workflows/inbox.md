@@ -16,6 +16,15 @@ Before starting, read these project files to understand the review criteria:
 - `CONTRIBUTING.md` — the issue-first rule and approval gates
 </required_reading>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. **Tool mapping:**
+   - `AskUserQuestion()` → `ask_question`
+   - `@file` references → explicit `view_file` calls
+</antigravity_runtime>
+
 <process>
 
 <step name="preflight">

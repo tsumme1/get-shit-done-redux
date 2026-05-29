@@ -6,6 +6,13 @@ Generate a post-session summary document capturing work performed, outcomes achi
 Read all files referenced by the invoking prompt's execution_context before starting.
 </required_reading>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. No translation required. This workflow uses only standard tools.
+</antigravity_runtime>
+
 <process>
 
 <step name="gather_session_data">

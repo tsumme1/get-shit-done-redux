@@ -2,6 +2,13 @@
 Display GSD command help at the tier the user asked for. Output ONLY the reference content of the chosen mode. Do NOT add project-specific analysis, git status, next-step suggestions, or any commentary beyond the reference.
 </purpose>
 
+<antigravity_runtime>
+**Antigravity 2.0 Enforcement Rules — MANDATORY when running on Antigravity:**
+
+1. **Read `get-shit-done/references/antigravity-runtime.md` FIRST** — contains tool mapping table.
+2. No translation required. This workflow uses only standard tools.
+</antigravity_runtime>
+
 <progressive_disclosure>
 **Mode files are lazy-loaded.** Read only the one mode file that matches `$ARGUMENTS`, then output its `<reference>` body verbatim.
 

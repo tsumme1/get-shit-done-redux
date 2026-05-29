@@ -36,10 +36,11 @@ if [ ! -f "$LOG_FILE" ]; then
 fi
 
 # Check for violations: raw gsd-tools.cjs usage via run_command
-VIOLATIONS=$(grep -c "gsd-tools.cjs\|gsd_run query" "$LOG_FILE" 2>/dev/null || echo "0")
+VIOLATIONS=$(grep -c "gsd-tools.cjs\|gsd_run query" "$LOG_FILE" 2>/dev/null || true)
+VIOLATIONS=${VIOLATIONS:-0}
 if [ "$VIOLATIONS" -gt 0 ]; then
   # Check if these are in run_command calls (violation) vs MCP server internals (ok)
-  RAW_CALLS=$(grep "run_command" "$LOG_FILE" 2>/dev/null | grep -c "gsd-tools.cjs\|gsd_run" 2>/dev/null || echo "0")
+  RAW_CALLS=$(( $(grep "run_command" "$LOG_FILE" 2>/dev/null | grep -c "gsd-tools.cjs\|gsd_run" || true) + 0 ))
   if [ "$RAW_CALLS" -gt 0 ]; then
     echo "❌ ENFORCEMENT FAILURE: Detected ${RAW_CALLS} raw gsd-tools.cjs call(s) via run_command"
     echo "   The gsd-guardian MCP server is the ONLY authorized interface."
@@ -52,7 +53,7 @@ if [ "$VIOLATIONS" -gt 0 ]; then
 fi
 
 # Check for positive evidence: MCP tool was called
-MCP_CALLS=$(grep "call_mcp_tool" "$LOG_FILE" 2>/dev/null | grep -ci "gsd-guardian" 2>/dev/null || echo "0")
+MCP_CALLS=$(( $(grep "call_mcp_tool" "$LOG_FILE" 2>/dev/null | grep -ci "gsd-guardian" || true) + 0 ))
 if [ "$MCP_CALLS" -gt 0 ]; then
   echo "✅ ENFORCEMENT PASSED: gsd-guardian MCP server used (${MCP_CALLS} call(s)), no raw gsd-tools.cjs violations"
   exit 0
