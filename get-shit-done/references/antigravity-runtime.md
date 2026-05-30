@@ -252,6 +252,7 @@ call_mcp_tool(
 | `ship` | 5 | Push, PR creation, optional review |
 | `complete-milestone` | 7 | Archive, retrospective, cleanup |
 | `autonomous` | 4 | Meta-workflow chaining discuss→plan→execute per phase |
+| `code-review` | 7 | Scope files, spawn reviewer agent, commit REVIEW.md |
 
 ### Stage definition format
 

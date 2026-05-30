@@ -771,7 +771,7 @@ const TOOLS = {
 
   // === Workflow Orchestration (sequentialthinking pattern) ===
   gsd_workflow: {
-    description: 'Execute a GSD workflow stage by stage. Call this tool to start a new workflow or continue an active one. Each call returns the next stage with instructions. You MUST keep calling this tool with your completed stage outputs until it returns nextStageNeeded: false.\n\nFirst call: provide \'workflow\' and \'args\' to start.\nContinuation: provide \'session_id\' and \'stage_outputs\' from the completed stage.\nStatus check: provide only \'session_id\' to get current state without advancing.\n\nAvailable workflows: execute-phase, plan-phase, discuss-phase, verify-work, ship, complete-milestone, autonomous, execute-plan.',
+    description: 'Execute a GSD workflow stage by stage. Call this tool to start a new workflow or continue an active one. Each call returns the next stage with instructions. You MUST keep calling this tool with your completed stage outputs until it returns nextStageNeeded: false.\n\nFirst call: provide \'workflow\' and \'args\' to start.\nContinuation: provide \'session_id\' and \'stage_outputs\' from the completed stage.\nStatus check: provide only \'session_id\' to get current state without advancing.\n\nAvailable workflows: execute-phase, plan-phase, discuss-phase, verify-work, ship, complete-milestone, autonomous, execute-plan, code-review.',
     parameters: {
       workflow: {
         type: 'string',
