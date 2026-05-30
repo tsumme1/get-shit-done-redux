@@ -1,0 +1,102 @@
+{
+  "workflow": "complete-milestone",
+  "version": "1.0",
+  "description": "Complete and archive a milestone — audit, stats, evolve PROJECT.md, archive, handle branches, and finalize.",
+  "stages": [
+    {
+      "index": 0,
+      "name": "init",
+      "instructions": "Initialize the complete-milestone workflow by auditing open items and loading milestone state.\n\n1. Call the gsd-guardian MCP tool 'audit_open' to check for unresolved audit items.\n2. Call the gsd-guardian MCP tool 'state_load' to get the current milestone info.\n3. Extract from the state response:\n   - milestone_name (string — the current milestone name)\n   - milestone_version (string — the current milestone version)\n4. Count the open audit items returned by 'audit_open'.\n5. If open_items_count > 0, present them to the user via ask_question:\n   - 'Resolve items' — user wants to fix them before completing\n   - 'Acknowledge and proceed' — user accepts the open items and continues\n   - 'Cancel' — abort the milestone completion\n6. If open_items_count is 0, set decision to 'acknowledge'.\n7. If the user chooses 'Cancel', report failure and stop the workflow.\n\nReport milestone_name, milestone_version, open_items_count, and the user's decision.",
+      "required_outputs": {
+        "milestone_name": { "type": "string" },
+        "milestone_version": { "type": "string" },
+        "open_items_count": { "type": "number" },
+        "decision": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["audit_open", "state_load"],
+        "files_to_read": [".planning/STATE.md"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Milestone completion cancelled by user or state could not be loaded."
+    },
+    {
+      "index": 1,
+      "name": "verify_readiness",
+      "instructions": "Verify all phases are complete and requirements are satisfied.\n\n1. Call the gsd-guardian MCP tool 'phases_list' to get the full list of phases.\n2. Check each phase's status — all should be 'Complete'.\n   - Set all_phases_complete to true only if every phase has status 'Complete'.\n3. Read .planning/REQUIREMENTS.md if it exists.\n   - Check requirement statuses — look for any 'Active' or 'In Progress' items.\n   - Set requirements_complete to true if no outstanding requirements remain.\n4. Present a milestone scope summary to the user:\n   - Total phases and their statuses\n   - Requirements completion ratio\n   - Any incomplete items\n5. If not all phases are complete or requirements are unfinished, ask the user via ask_question:\n   - 'Proceed anyway' — continue with incomplete items\n   - 'Run audit first' — abort to run a full audit\n   - 'Abort' — cancel milestone completion\n6. Set readiness_confirmed based on the user's decision.\n\nReport all_phases_complete, requirements_complete, and readiness_confirmed.",
+      "required_outputs": {
+        "all_phases_complete": { "type": "boolean" },
+        "requirements_complete": { "type": "boolean" },
+        "readiness_confirmed": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["phases_list"],
+        "files_to_read": [".planning/REQUIREMENTS.md"]
+      }
+    },
+    {
+      "index": 2,
+      "name": "gather_stats",
+      "instructions": "Collect milestone statistics and accomplishments.\n\n1. Run git log to gather milestone statistics:\n   - Total commit count for the milestone period\n   - Diff stats (files changed, insertions, deletions)\n   - Lines of code delta\n   - Timeline (first commit date to last commit date)\n2. Find and read all SUMMARY.md files across phase directories.\n   - Extract key accomplishments from each phase summary.\n   - Compile into a single accomplishments array.\n3. Present a formatted stats table to the user:\n   - Commits, files changed, lines added/removed\n   - Duration (days from first to last commit)\n   - Phase count and plan count\n   - Key accomplishments list\n4. Build a stats_summary string with the formatted table.\n\nReport commit_count, accomplishments array, and stats_summary.",
+      "required_outputs": {
+        "commit_count": { "type": "number" },
+        "accomplishments": { "type": "array" },
+        "stats_summary": { "type": "string" }
+      },
+      "hints": {
+        "files_to_read": [".planning/phases/"]
+      }
+    },
+    {
+      "index": 3,
+      "name": "evolve_project",
+      "instructions": "Perform a full review and update of PROJECT.md to reflect milestone outcomes.\n\n1. Read .planning/PROJECT.md thoroughly.\n2. Review and update each section:\n   a. 'What This Is' — verify the description still accurately reflects the project after this milestone's changes. Update if the project scope or identity evolved.\n   b. 'Core Value' — update to reflect any new value propositions established during this milestone.\n   c. 'Requirements' — audit all requirement statuses:\n      - Move 'Active' requirements that were completed to 'Validated'\n      - Add any new 'Active' requirements discovered during this milestone\n      - Archive requirements that are no longer relevant\n   d. 'Context' — update with current state of the project, new patterns established, and architectural changes made.\n   e. 'Key Decisions' — audit each decision:\n      - Mark proven decisions with ✓ Good\n      - Mark decisions that need revisiting with ⚠️ Revisit\n      - Mark unresolved decisions with — Pending\n      - Add any new decisions made during this milestone\n   f. 'Constraints' — update with any new constraints discovered or constraints that were removed.\n3. Write the updated PROJECT.md.\n4. Count the number of decisions reviewed.\n\nReport project_updated and decisions_reviewed.",
+      "required_outputs": {
+        "project_updated": { "type": "boolean" },
+        "decisions_reviewed": { "type": "number" }
+      },
+      "hints": {
+        "files_to_read": [".planning/PROJECT.md"]
+      }
+    },
+    {
+      "index": 4,
+      "name": "archive",
+      "instructions": "Archive milestone artifacts and write the retrospective.\n\n1. Reorganize ROADMAP.md:\n   - Group completed phases under a milestone heading\n   - Wrap the completed phases in a <details> block with a summary line showing the milestone name and version\n   - Preserve any future/planned phases outside the <details> block\n2. Move completed phase directories to an archive location:\n   - Create .planning/archive/${milestone_version}/ if it doesn't exist\n   - Move each completed phase directory into the archive\n3. Write RETROSPECTIVE.md in .planning/archive/${milestone_version}/:\n   - ## What Was Built — summary of all features and capabilities delivered\n   - ## What Worked — processes, patterns, and approaches that were effective\n   - ## What Was Inefficient — bottlenecks, rework, and areas for improvement\n   - ## Patterns Established — reusable patterns, conventions, and standards created\n   - ## Key Lessons — actionable takeaways for future milestones\n4. Use the gsd-guardian 'commit' MCP tool to commit all archive changes:\n   - Message: 'chore: archive milestone ${milestone_version} — ${milestone_name}'\n\nReport roadmap_reorganized, retrospective_written, and archive_committed.",
+      "required_outputs": {
+        "roadmap_reorganized": { "type": "boolean" },
+        "retrospective_written": { "type": "boolean" },
+        "archive_committed": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["commit"],
+        "files_to_read": [".planning/ROADMAP.md"]
+      }
+    },
+    {
+      "index": 5,
+      "name": "handle_branches",
+      "instructions": "Handle git branches and optional tagging for the completed milestone.\n\n1. Call the gsd-guardian MCP tool 'config_get' with key 'branching.strategy' to determine the branching approach.\n2. For 'phase' or 'milestone' branching strategies:\n   a. Detect any branches created during this milestone (phase branches, feature branches).\n   b. For each detected branch, ask the user via ask_question:\n      - 'Squash merge' — squash all commits and merge to main\n      - 'Merge with history' — merge preserving full commit history\n      - 'Delete without merging' — discard the branch\n      - 'Keep branches' — leave branches as-is\n   c. Execute the chosen action for each branch.\n3. For 'none' strategy, skip branch handling.\n4. Check config 'git.create_tag' — if true, create a git tag:\n   - Tag name: v${milestone_version}\n   - Tag message: 'Milestone ${milestone_version}: ${milestone_name}'\n5. Set tag_created based on whether a tag was created.\n\nReport branches_handled and tag_created.",
+      "required_outputs": {
+        "branches_handled": { "type": "boolean" },
+        "tag_created": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["config_get"]
+      }
+    },
+    {
+      "index": 6,
+      "name": "finalize",
+      "instructions": "Finalize milestone completion and update project state.\n\n1. Call the gsd-guardian MCP tool 'state_update' to update STATE.md:\n   - Clear any resolved blockers\n   - Update the milestone reference to indicate completion\n   - Set the new focus to 'Milestone ${milestone_version} complete — ready for next milestone'\n2. Use the gsd-guardian 'commit' MCP tool to commit the final state changes:\n   - Message: 'chore: finalize milestone ${milestone_version} completion'\n3. Present a completion summary to the user:\n   - Shipped: number of phases, plans, and tasks completed\n   - Archived: files and directories moved to archive\n   - Tag: git tag if created, or 'none'\n   - Stats: key metrics from gather_stats\n4. Suggest the next action: 'new-milestone' to start the next development cycle.\n\nReport state_updated, committed, and next_action.",
+      "required_outputs": {
+        "state_updated": { "type": "boolean" },
+        "committed": { "type": "boolean" },
+        "next_action": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["state_update", "commit"]
+      }
+    }
+  ]
+}

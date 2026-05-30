@@ -1,0 +1,70 @@
+{
+  "workflow": "autonomous",
+  "version": "1.0",
+  "description": "Meta-workflow that chains discuss→plan→execute for all remaining phases. Top-level autonomous mode.",
+  "stages": [
+    {
+      "index": 0,
+      "name": "init",
+      "instructions": "Initialize the autonomous meta-workflow.\n\n1. Call the gsd-guardian MCP tool 'state_load' to get the current milestone info.\n   Extract: milestone_name, current_phase, project_root.\n2. Call the gsd-guardian MCP tool 'phases_list' to discover all phases.\n   Extract: the full list of phases with their numbers, names, and statuses.\n3. Parse workflow args for flags:\n   - --from N : start from phase N (inclusive)\n   - --to N   : stop after phase N (inclusive)\n   - --only N : execute only phase N (shorthand for --from N --to N)\n   - --interactive : pause for user confirmation before each phase\n4. Filter the phases list:\n   a. Remove any phases with status 'Complete' or 'Archived'.\n   b. If --from N is set, exclude phases with number < N.\n   c. If --to N is set, exclude phases with number > N.\n   d. If --only N is set, keep only phase N (error if it is already complete).\n5. Sort the remaining phases by phase number ascending.\n6. If no incomplete phases remain after filtering, report phases_remaining as 0 and stop.\n7. Report phase count (total in milestone), phases_remaining (after filtering), and the ordered phases_list.\n8. Set interactive_mode to true if --interactive flag was passed, false otherwise.\n\nReport all required outputs.",
+      "required_outputs": {
+        "milestone_name": { "type": "string" },
+        "phase_count": { "type": "number" },
+        "phases_remaining": { "type": "number" },
+        "phases_list": { "type": "array" },
+        "interactive_mode": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["state_load", "phases_list"],
+        "files_to_read": [".planning/STATE.md", ".planning/ROADMAP.md"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Failed to load milestone state or discover phases. Ensure .planning/ is initialized and ROADMAP.md exists."
+    },
+    {
+      "index": 1,
+      "name": "execute_phase",
+      "instructions": "Execute the full discuss→plan→execute chain for the current phase.\n\nThis stage is the core loop body. It runs once per phase and is repeated via the 'iterate' stage until all_phases_done is true.\n\n1. Determine the current phase:\n   - On first entry, use the first element of phases_list.\n   - On subsequent entries (after iterate sets next_phase), use next_phase.\n\n2. If interactive_mode is true, present the phase to the user and ask:\n   'Execute phase ${current_phase}: ${phase_name}?' — 'Yes' / 'Skip' / 'Stop'\n   If 'Skip', set discuss_done, plan_done, execute_done to false, verification_status to 'skipped', and proceed to iterate.\n   If 'Stop', set all_phases_done to true and proceed to finalize.\n\n3. DISCUSS step:\n   a. Check if CONTEXT.md exists in the phase directory.\n   b. If CONTEXT.md is missing, invoke the discuss-phase workflow:\n      - Either call 'gsd_workflow' MCP tool with workflow='discuss-phase' and phase=${current_phase}\n      - OR invoke the 'gsd-discuss-phase' skill via agent_skills + subagent spawn\n   c. Set discuss_done to true when CONTEXT.md exists.\n\n4. PLAN step:\n   a. Check if PLAN-*.md files exist in the phase directory.\n   b. If no plans exist, invoke the plan-phase workflow:\n      - Either call 'gsd_workflow' MCP tool with workflow='plan-phase' and phase=${current_phase}\n      - OR invoke the 'gsd-plan-phase' skill via agent_skills + subagent spawn\n   c. Set plan_done to true when at least one PLAN-*.md exists.\n\n5. EXECUTE step:\n   a. Invoke the execute-phase workflow:\n      - Either call 'gsd_workflow' MCP tool with workflow='execute-phase' and phase=${current_phase}\n      - OR invoke the 'gsd-execute-phase' skill via agent_skills + subagent spawn\n   b. Set execute_done to true when execution completes.\n\n6. VERIFICATION step:\n   a. Read VERIFICATION.md from the phase directory.\n   b. Parse the status field: 'passed', 'gaps_found', or 'human_needed'.\n   c. If 'passed': set verification_status to 'passed' — continue to iterate.\n   d. If 'gaps_found': retry once — invoke plan-phase with --gaps flag, then execute-phase again.\n      After retry, re-read VERIFICATION.md. Set verification_status to the new status.\n   e. If 'human_needed': present the HUMAN-UAT.md items to the user.\n      Set verification_status to 'human_needed' and pause for user input.\n\n7. Report the current phase number, phase name, and status of each sub-step.\n\nIMPORTANT: This stage nests OTHER workflows. The agent should call gsd_workflow recursively for each sub-step, or spawn subagents with the corresponding GSD skills. Do not attempt to inline the discuss/plan/execute logic — delegate to the existing workflows.",
+      "required_outputs": {
+        "current_phase": { "type": "number" },
+        "phase_name": { "type": "string" },
+        "discuss_done": { "type": "boolean" },
+        "plan_done": { "type": "boolean" },
+        "execute_done": { "type": "boolean" },
+        "verification_status": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["init_phase_op", "agent_skills"],
+        "spawn_agents": ["gsd-discuss-phase", "gsd-plan-phase", "gsd-execute-phase"],
+        "files_to_read": ["${phase_dir}/CONTEXT.md", "${phase_dir}/VERIFICATION.md"]
+      }
+    },
+    {
+      "index": 2,
+      "name": "iterate",
+      "instructions": "Check iteration state and advance to the next phase or terminate the loop.\n\n1. Remove the just-completed phase from the working phases_list.\n2. Check termination conditions:\n   a. If --only flag was originally set, set all_phases_done to true. Skip to finalize.\n   b. If --to N was set and current_phase >= N, set all_phases_done to true. Skip to finalize.\n   c. If phases_list is now empty (no more incomplete phases), set all_phases_done to true.\n3. If none of the termination conditions are met:\n   a. Set next_phase to the phase number of the next element in phases_list.\n   b. Set all_phases_done to false — this will cause execute_phase to repeat.\n4. Report all_phases_done and next_phase.\n\nThis stage controls the repeat_until loop. When all_phases_done is false, the WorkflowEngine will loop back to execute_phase (stage 1). When true, it advances to finalize (stage 3).",
+      "required_outputs": {
+        "all_phases_done": { "type": "boolean" },
+        "next_phase": { "type": "number" }
+      },
+      "repeat_until": {
+        "output_field": "all_phases_done",
+        "equals": true
+      }
+    },
+    {
+      "index": 3,
+      "name": "finalize",
+      "instructions": "Finalize the autonomous workflow run.\n\n1. Compile a completion summary:\n   - List every phase that was executed with its verification_status.\n   - Count: total phases attempted, passed, gaps_found, human_needed, skipped.\n   - Note total wall-clock time if available.\n\n2. If --only flag was set:\n   - Skip lifecycle suggestions.\n   - Report the single phase result and suggest next steps.\n   - Set lifecycle_complete to false.\n\n3. If all phases in the milestone were completed (not just the filtered set):\n   a. Suggest running 'audit-milestone' skill to audit milestone completion.\n   b. Suggest running 'complete-milestone' workflow to archive and advance.\n   c. Suggest running 'cleanup' skill to archive phase directories.\n   d. Set lifecycle_complete to true.\n   e. Set next_action to 'audit-milestone'.\n\n4. If only some phases were completed:\n   - Set lifecycle_complete to false.\n   - Set next_action to the next incomplete phase number or 'manual-review'.\n\n5. Present a completion banner:\n   ╔══════════════════════════════════════╗\n   ║   AUTONOMOUS RUN COMPLETE           ║\n   ║   Milestone: ${milestone_name}      ║\n   ║   Phases: ${completed}/${total}     ║\n   ╚══════════════════════════════════════╝\n\n6. Record the session using 'state_record_session' MCP tool.\n\nReport all required outputs.",
+      "required_outputs": {
+        "lifecycle_complete": { "type": "boolean" },
+        "summary": { "type": "string" },
+        "next_action": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["state_record_session"],
+        "spawn_agents": ["gsd-audit-milestone", "gsd-complete-milestone", "gsd-cleanup"]
+      }
+    }
+  ]
+}

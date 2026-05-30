@@ -1,0 +1,139 @@
+{
+  "workflow": "execute-phase",
+  "version": "1.0",
+  "description": "Execute all plans in a phase using wave-based parallel execution. Orchestrator coordinates, subagents execute.",
+  "stages": [
+    {
+      "index": 0,
+      "name": "init",
+      "instructions": "Initialize the execute-phase workflow.\n\n1. Call the gsd-guardian MCP tool 'init_execute_phase' with the phase number.\n2. Parse the JSON response for:\n   - phase_found, phase_dir, phase_name, phase_number, padded_phase\n   - plans (array), plan_count, incomplete_plans, incomplete_count\n   - branching_strategy, branch_name\n   - state_exists, roadmap_exists, phase_req_ids\n3. Call 'agent_skills' with agent_type 'gsd-executor' to load executor prompt.\n4. Read .planning/STATE.md for project state.\n5. If phase_found is false or plan_count is 0, report the error.\n\nReport all required outputs.",
+      "required_outputs": {
+        "phase_found": { "type": "boolean" },
+        "phase_name": { "type": "string" },
+        "phase_dir": { "type": "string" },
+        "plan_count": { "type": "number" },
+        "incomplete_count": { "type": "number" },
+        "executor_skills_loaded": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["init_execute_phase", "agent_skills"],
+        "files_to_read": [".planning/STATE.md"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Phase not found or no plans exist. Run plan-phase first."
+    },
+    {
+      "index": 1,
+      "name": "antipattern_check",
+      "instructions": "Check for blocking anti-patterns before execution.\n\n1. Check if a .continue-here.md file exists in the phase directory.\n2. If it exists, read it — it contains questions/issues that must be addressed.\n3. You must demonstrate understanding of each blocking item before proceeding.\n4. If no .continue-here.md exists, report antipatterns_clear as true.\n\nThis gate prevents re-execution of phases that previously failed due to unresolved issues.",
+      "required_outputs": {
+        "antipatterns_clear": { "type": "boolean" }
+      },
+      "hints": {
+        "files_to_read": ["${phase_dir}/.continue-here.md"]
+      },
+      "fatal_on_fail": true
+    },
+    {
+      "index": 2,
+      "name": "discover_plans",
+      "instructions": "Discover plans and group them into execution waves.\n\n1. Call the gsd-guardian MCP tool 'phase_plan_index' with the phase number.\n2. Parse the response for wave groupings and dependency information.\n3. Filter to only incomplete plans (check each plan's frontmatter for status).\n4. Report the wave structure — which plans execute in parallel vs sequentially.\n5. If a specific wave was requested via args, filter to that wave only.\n\nWave safety: Do NOT start wave 2+ if earlier waves have incomplete plans.",
+      "required_outputs": {
+        "plan_count": { "type": "number" },
+        "waves": { "type": "array" },
+        "plan_files": { "type": "array" }
+      },
+      "hints": {
+        "mcp_tools": ["phase_plan_index"]
+      },
+      "fatal_on_fail": true
+    },
+    {
+      "index": 3,
+      "name": "define_agents",
+      "instructions": "Define the gsd-executor subagent type for plan execution.\n\n1. Use define_subagent to create the 'gsd-executor' agent type.\n2. Set the system_prompt to the executor skills loaded in the init stage.\n3. Configure: enable_write_tools: true, enable_mcp_tools: true.\n4. The executor agent will be invoked once per plan in each wave.\n\nReport that the agent type has been defined.",
+      "required_outputs": {
+        "agent_type_defined": { "type": "boolean" }
+      },
+      "hints": {
+        "spawn_agents": ["gsd-executor"]
+      }
+    },
+    {
+      "index": 4,
+      "name": "execute_wave",
+      "instructions": "Execute the current wave of plans.\n\n1. For each plan in the current wave, spawn a gsd-executor subagent:\n   - Use invoke_subagent with TypeName 'gsd-executor'\n   - Use Workspace: 'branch' for worktree isolation\n   - Provide the plan file path, phase directory, and phase context in the Prompt\n   - You can spawn multiple subagents in parallel by passing multiple entries in the Subagents array\n2. Wait for all subagents to complete (the system notifies you automatically).\n3. For each completed subagent, verify:\n   - SUMMARY.md was created in the plan directory\n   - Commits were made\n   - No 'Self-Check: FAILED' in the summary\n4. Collect results: plan_id, status (success/failure), summary, commit count.\n\nReport the wave index and all results.",
+      "required_outputs": {
+        "wave_index": { "type": "number" },
+        "results": { "type": "array" },
+        "all_succeeded": { "type": "boolean" }
+      },
+      "hints": {
+        "spawn_agents": ["gsd-executor"]
+      },
+      "repeat_until": {
+        "output_field": "all_waves_done",
+        "equals": true
+      }
+    },
+    {
+      "index": 5,
+      "name": "post_wave_validation",
+      "instructions": "Validate the wave results and prepare for the next wave.\n\n1. If tests exist, run them to verify the wave's changes don't break anything.\n2. Update ROADMAP progress using 'roadmap_update_plan_progress' for each completed plan.\n3. If there are more waves remaining, set all_waves_done to false.\n4. If all waves are complete, set all_waves_done to true.\n5. Handle any failures:\n   - If a plan failed, note it for the aggregate report\n   - Decide whether to continue to the next wave or stop\n\nReport test results and whether all waves are complete.",
+      "required_outputs": {
+        "tests_passed": { "type": "boolean" },
+        "all_waves_done": { "type": "boolean" },
+        "roadmap_updated": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["roadmap_update_plan_progress"]
+      }
+    },
+    {
+      "index": 6,
+      "name": "aggregate_results",
+      "instructions": "Aggregate results from all waves into a phase completion summary.\n\n1. Compile a summary table of all plans executed:\n   - Plan ID, status, summary, commits\n2. Count successes, failures, and skipped plans.\n3. Check if all plans in the phase completed successfully.\n4. If security enforcement is enabled, check for SECURITY.md.\n\nReport the completion summary.",
+      "required_outputs": {
+        "total_plans": { "type": "number" },
+        "succeeded": { "type": "number" },
+        "failed": { "type": "number" },
+        "completion_summary": { "type": "string" }
+      }
+    },
+    {
+      "index": 7,
+      "name": "quality_gates",
+      "instructions": "Run post-execution quality gates.\n\n1. Regression gate: If prior phases have test files listed in VERIFICATION.md, run them.\n2. Schema drift gate: Check for schema changes that weren't applied.\n3. Codebase drift gate: Check for unexpected changes to core patterns.\n\nThese gates are advisory — report findings but don't block the workflow.\nIf critical issues are found, note them in the report.",
+      "required_outputs": {
+        "regression_ok": { "type": "boolean" },
+        "schema_drift_ok": { "type": "boolean" },
+        "quality_notes": { "type": "string" }
+      }
+    },
+    {
+      "index": 8,
+      "name": "verify_phase",
+      "instructions": "Verify the phase goal was achieved.\n\n1. Define a 'gsd-verifier' subagent type using define_subagent.\n2. Spawn the verifier with the phase context, plan summaries, and acceptance criteria.\n3. The verifier should produce a VERIFICATION.md file with status:\n   - 'passed' — all criteria met\n   - 'human_needed' — some criteria need manual verification\n   - 'gaps_found' — specific gaps identified\n4. Collect the verification result.\n\nReport the verification status and file path.",
+      "required_outputs": {
+        "verification_status": { "type": "string" },
+        "verification_file": { "type": "string" }
+      },
+      "hints": {
+        "spawn_agents": ["gsd-verifier"]
+      }
+    },
+    {
+      "index": 9,
+      "name": "finalize",
+      "instructions": "Finalize the phase execution.\n\n1. Use 'state_update' or the appropriate state tool to mark the phase as complete.\n2. Use 'roadmap_update_plan_progress' to update all plan statuses.\n3. Commit the VERIFICATION.md and any state changes using the 'commit' MCP tool:\n   - Message: 'feat: execute phase ${phase_number} — ${phase_name}'\n4. Close any phase-specific todos using relevant tools.\n5. Report the summary and suggest next steps:\n   - If gaps found: suggest '/gsd plan-phase --gaps'\n   - If human_needed: present HUMAN-UAT.md items\n   - If passed: suggest next phase or ship\n\nReport completion status.",
+      "required_outputs": {
+        "roadmap_updated": { "type": "boolean" },
+        "state_advanced": { "type": "boolean" },
+        "committed": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["commit", "state_update", "roadmap_update_plan_progress"]
+      }
+    }
+  ]
+}

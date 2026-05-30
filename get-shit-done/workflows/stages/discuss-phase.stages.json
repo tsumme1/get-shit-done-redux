@@ -1,0 +1,93 @@
+{
+  "workflow": "discuss-phase",
+  "version": "1.0",
+  "description": "Gather phase context through adaptive questioning before planning. Produces CONTEXT.md with implementation decisions.",
+  "stages": [
+    {
+      "index": 0,
+      "name": "init",
+      "instructions": "Initialize the discuss-phase workflow.\n\n1. Call the gsd-guardian MCP tool 'init_phase_op' with the phase number from the workflow args.\n2. Parse the JSON response for these fields:\n   - phase_found (boolean)\n   - phase_dir (string — path to the phase directory)\n   - phase_name (string)\n   - has_context (boolean — whether CONTEXT.md already exists)\n   - has_plans (boolean — whether PLAN-*.md files exist)\n   - plan_count (number)\n   - padded_phase (string — zero-padded phase number)\n\n3. If phase_found is false, report the error and stop.\n4. Also read .planning/STATE.md to get current project state.",
+      "required_outputs": {
+        "phase_found": { "type": "boolean" },
+        "phase_name": { "type": "string" },
+        "phase_dir": { "type": "string" },
+        "has_context": { "type": "boolean" },
+        "has_plans": { "type": "boolean" },
+        "padded_phase": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["init_phase_op"],
+        "files_to_read": [".planning/STATE.md"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Phase not found in ROADMAP.md. Verify the phase number exists."
+    },
+    {
+      "index": 1,
+      "name": "check_existing",
+      "instructions": "Check if context artifacts already exist for this phase.\n\n1. Check if CONTEXT.md exists in the phase directory.\n2. Check if a DISCUSS-CHECKPOINT.json exists (indicates a previous interrupted discussion).\n3. Check if PLAN-*.md files exist without a CONTEXT.md (indicates planning happened without discussion).\n\nBased on what you find:\n- If CONTEXT.md exists: Ask the user via ask_question — 'Update existing context' / 'View only' / 'Start fresh'\n- If checkpoint exists: Ask — 'Resume previous discussion' / 'Start fresh'\n- If plans exist without context: Ask — 'Continue (replan after)' / 'View plans' / 'Cancel'\n- If nothing exists: Report decision as 'fresh'\n\nReport the user's decision.",
+      "required_outputs": {
+        "decision": { "type": "string", "enum": ["update", "view", "fresh", "resume", "continue", "cancel"] }
+      },
+      "hints": {
+        "files_to_read": ["${phase_dir}/"]
+      },
+      "skip_when": { "has_context": false, "has_plans": false }
+    },
+    {
+      "index": 2,
+      "name": "load_context",
+      "instructions": "Load all prior context needed for the discussion.\n\n1. Read .planning/PROJECT.md for project overview and goals.\n2. Read .planning/REQUIREMENTS.md if it exists.\n3. Read up to 3 prior CONTEXT.md files from earlier phases (for continuity).\n4. Read .planning/DECISIONS-INDEX.md if it exists (accumulated decisions).\n5. Call gsd-guardian MCP tool 'todo_match_phase' with the phase number to find related todos.\n6. If the phase directory contains any spike or sketch findings, note them.\n\nSummarize what you loaded — this context will inform the discussion.\nReport whether prior decisions were found and whether matching todos exist.",
+      "required_outputs": {
+        "prior_decisions_loaded": { "type": "boolean" },
+        "todos_reviewed": { "type": "boolean" },
+        "context_summary": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["todo_match_phase"],
+        "files_to_read": [
+          ".planning/PROJECT.md",
+          ".planning/REQUIREMENTS.md",
+          ".planning/DECISIONS-INDEX.md"
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "name": "analyze_and_discuss",
+      "instructions": "Analyze the phase goal and conduct the discussion.\n\n1. Read the phase's goal from ROADMAP.md using 'roadmap_get_phase' MCP tool.\n2. Identify gray areas — aspects of the phase that need clarification:\n   - Ambiguous requirements\n   - Technical approach decisions\n   - Scope boundaries\n   - Integration points with other phases\n   - Testing strategy\n3. Present the gray areas to the user using ask_question (multi-select which areas to discuss).\n4. For each selected area, discuss with the user:\n   - Present the tradeoffs and options\n   - Capture the user's decision\n   - Record any deferred ideas\n5. Accumulate all decisions made.\n\nReport the number of gray areas identified and decisions captured.",
+      "required_outputs": {
+        "gray_areas_count": { "type": "number" },
+        "decisions_made": { "type": "number" },
+        "decisions_summary": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["roadmap_get_phase"]
+      }
+    },
+    {
+      "index": 4,
+      "name": "write_context",
+      "instructions": "Write the CONTEXT.md file with all accumulated decisions.\n\n1. Create ${padded_phase}-CONTEXT.md in the phase directory.\n2. Structure it with these sections:\n   - ## Phase Boundary — what's in scope, what's not\n   - ## Implementation Decisions — organized by category\n   - ## Canonical References — key files and patterns to follow\n   - ## Specific Ideas — concrete implementation guidance\n   - ## Deferred Ideas — captured but not for this phase\n3. Write the file using write_to_file or create the file content.\n4. Verify the file was written successfully.\n\nReport the file path and confirmation that it was written.",
+      "required_outputs": {
+        "context_file_path": { "type": "string" },
+        "context_written": { "type": "boolean" }
+      },
+      "hints": {
+        "files_to_read": []
+      }
+    },
+    {
+      "index": 5,
+      "name": "commit_and_advance",
+      "instructions": "Commit the context artifacts and update project state.\n\n1. Also write a ${padded_phase}-DISCUSSION-LOG.md summarizing the discussion flow.\n2. Delete any DISCUSS-CHECKPOINT.json if it exists.\n3. Use the gsd-guardian 'commit' MCP tool to commit both files:\n   - Message: 'docs: discuss phase ${phase_number} — ${phase_name}'\n   - Files: the CONTEXT.md and DISCUSSION-LOG.md paths\n4. Use 'state_record_session' to record the session.\n5. Report what was committed and suggest next steps (usually plan-phase).\n\nReport whether the commit succeeded and what the recommended next action is.",
+      "required_outputs": {
+        "committed": { "type": "boolean" },
+        "next_action": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["commit", "state_record_session"]
+      }
+    }
+  ]
+}

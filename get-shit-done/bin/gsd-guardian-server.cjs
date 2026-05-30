@@ -39,6 +39,7 @@ const readline = require('node:readline');
 const PROJECT_ROOT = process.env.GSD_PROJECT_ROOT || process.cwd();
 const GSD_TOOLS_PATH = findGsdTools();
 const AUDIT_LOG_PATH = path.join(PROJECT_ROOT, '.planning', '.gsd-audit.jsonl');
+const FORCE_MODE = process.env.GSD_FORCE === 'true';
 
 function findGsdTools() {
   const candidates = [
@@ -60,6 +61,7 @@ function auditLog(toolName, args, result, durationMs) {
     args,
     success: result.success,
     duration_ms: durationMs,
+    ...(FORCE_MODE ? { force_bypass: true } : {}),
     ...(result.error ? { error: result.error } : {}),
   };
   try {
@@ -67,6 +69,361 @@ function auditLog(toolName, args, result, durationMs) {
     fs.appendFileSync(AUDIT_LOG_PATH, JSON.stringify(entry) + '\n');
   } catch {
     // Audit logging is best-effort
+  }
+}
+
+// --- Workflow Engine ---
+class WorkflowEngine {
+  constructor(projectRoot) {
+    this.projectRoot = projectRoot;
+    this.sessionsDir = path.join(projectRoot, '.planning', '.gsd-sessions');
+    this.stagesDir = path.join(__dirname, '..', 'workflows', 'stages');
+    this.activeSessions = new Map();
+  }
+
+  /**
+   * Start a new workflow. Returns session_id + Stage 0.
+   */
+  start(workflowName, args, force = false) {
+    const stages = this._loadStages(workflowName);
+    if (!stages) {
+      return {
+        nextStageNeeded: false,
+        error: `Unknown workflow: ${workflowName}. Available: ${this._listWorkflows().join(', ')}`,
+      };
+    }
+
+    const sessionId = this._generateId();
+    const session = {
+      session_id: sessionId,
+      workflow: workflowName,
+      args,
+      force,
+      current_stage: 0,
+      stages_completed: [],
+      started_at: new Date().toISOString(),
+      status: 'active',
+    };
+
+    this.activeSessions.set(sessionId, session);
+    this._persist(session);
+
+    return this._buildStageResponse(session, stages[0], stages.length);
+  }
+
+  /**
+   * Advance to next stage. Validates outputs, returns next stage or completion.
+   */
+  advance(sessionId, stageOutputs, force = false) {
+    const session = this._restore(sessionId);
+    if (!session) {
+      return {
+        nextStageNeeded: false,
+        error: `Session not found: ${sessionId}. Start a new workflow with the 'workflow' parameter.`,
+      };
+    }
+
+    if (session.status !== 'active') {
+      return {
+        nextStageNeeded: false,
+        error: `Session ${sessionId} is ${session.status}. Start a new workflow.`,
+      };
+    }
+
+    const stages = this._loadStages(session.workflow);
+    if (!stages) {
+      return { nextStageNeeded: false, error: `Workflow ${session.workflow} stages not found.` };
+    }
+
+    const currentStage = stages[session.current_stage];
+    if (!currentStage) {
+      return { nextStageNeeded: false, error: 'No current stage found.' };
+    }
+
+    // Validate outputs
+    const sessionForce = force || session.force;
+    if (!sessionForce) {
+      const validation = this._validateOutputs(currentStage, stageOutputs);
+      if (!validation.valid) {
+        // Return same stage with validation error
+        return {
+          session_id: sessionId,
+          workflow: session.workflow,
+          nextStageNeeded: true,
+          stage: this._formatStage(currentStage, stages.length),
+          validation_error: {
+            missing_outputs: validation.missing,
+            type_errors: validation.typeErrors,
+            hint: validation.hint || 'Complete the missing outputs and call gsd_workflow again.',
+          },
+          action: 'Stage outputs were incomplete or invalid. Complete the missing items and call gsd_workflow again with this session_id and corrected stage_outputs.',
+        };
+      }
+    }
+
+    // Record stage completion
+    session.stages_completed.push({
+      index: session.current_stage,
+      name: currentStage.name,
+      completed_at: new Date().toISOString(),
+      outputs: stageOutputs,
+    });
+
+    // Determine next stage (may skip conditional stages)
+    const nextIndex = this._nextStage(session, stages, stageOutputs);
+
+    if (nextIndex === null || nextIndex >= stages.length) {
+      // Workflow complete
+      session.status = 'complete';
+      session.completed_at = new Date().toISOString();
+      this._persist(session);
+
+      return {
+        session_id: sessionId,
+        workflow: session.workflow,
+        nextStageNeeded: false,
+        status: 'complete',
+        summary: `Workflow '${session.workflow}' completed. ${session.stages_completed.length} stages executed.`,
+        stages_completed: session.stages_completed.map((s) => s.name),
+        action: 'Workflow complete. Report the summary to the user.',
+      };
+    }
+
+    // Advance to next stage
+    session.current_stage = nextIndex;
+    this._persist(session);
+
+    return this._buildStageResponse(session, stages[nextIndex], stages.length);
+  }
+
+  /**
+   * Get current session status (for resume after context loss).
+   */
+  status(sessionId) {
+    const session = this._restore(sessionId);
+    if (!session) {
+      return {
+        nextStageNeeded: false,
+        error: `Session not found: ${sessionId}`,
+      };
+    }
+
+    if (session.status !== 'active') {
+      return {
+        session_id: sessionId,
+        workflow: session.workflow,
+        nextStageNeeded: false,
+        status: session.status,
+        summary: `Workflow '${session.workflow}' is ${session.status}.`,
+        stages_completed: session.stages_completed.map((s) => s.name),
+      };
+    }
+
+    // Return current stage for resume
+    const stages = this._loadStages(session.workflow);
+    if (!stages) {
+      return { nextStageNeeded: false, error: `Workflow ${session.workflow} stages not found.` };
+    }
+
+    const currentStage = stages[session.current_stage];
+    return {
+      ...this._buildStageResponse(session, currentStage, stages.length),
+      resumed: true,
+      stages_completed: session.stages_completed.map((s) => s.name),
+    };
+  }
+
+  // --- Internal Methods ---
+
+  _buildStageResponse(session, stage, totalStages) {
+    return {
+      session_id: session.session_id,
+      workflow: session.workflow,
+      nextStageNeeded: true,
+      stage: this._formatStage(stage, totalStages),
+      action: `Complete the stage instructions above, then call gsd_workflow again with session_id "${session.session_id}" and your stage_outputs as a JSON string containing: ${Object.keys(stage.required_outputs || {}).join(', ') || '(no outputs required — call with stage_outputs "{}")'}.`,
+    };
+  }
+
+  _formatStage(stage, totalStages) {
+    return {
+      index: stage.index,
+      name: stage.name,
+      progress: `Stage ${stage.index + 1} of ${totalStages}`,
+      instructions: stage.instructions,
+      required_outputs: stage.required_outputs || {},
+      hints: stage.hints || {},
+      ...(stage.fatal_on_fail ? { fatal_on_fail: true } : {}),
+    };
+  }
+
+  _validateOutputs(stage, outputs) {
+    const required = stage.required_outputs || {};
+    const missing = [];
+    const typeErrors = [];
+
+    for (const [key, spec] of Object.entries(required)) {
+      if (outputs[key] === undefined || outputs[key] === null) {
+        missing.push(key);
+        continue;
+      }
+
+      // Type checking
+      const expectedType = typeof spec === 'string' ? spec : spec.type;
+      if (expectedType) {
+        const actualType = Array.isArray(outputs[key]) ? 'array' : typeof outputs[key];
+        if (expectedType !== actualType) {
+          typeErrors.push(`${key}: expected ${expectedType}, got ${actualType}`);
+        }
+      }
+
+      // Enum checking
+      if (spec.enum && !spec.enum.includes(outputs[key])) {
+        typeErrors.push(`${key}: must be one of [${spec.enum.join(', ')}], got "${outputs[key]}"`);
+      }
+    }
+
+    return {
+      valid: missing.length === 0 && typeErrors.length === 0,
+      missing,
+      typeErrors,
+      hint: missing.length > 0
+        ? `Missing required outputs: ${missing.join(', ')}. Re-read the stage instructions.`
+        : typeErrors.length > 0
+          ? `Type errors: ${typeErrors.join('; ')}`
+          : null,
+    };
+  }
+
+  _nextStage(session, stages, outputs) {
+    let candidate = session.current_stage + 1;
+
+    // Check for repeating stages (e.g., wave loop)
+    const currentStage = stages[session.current_stage];
+    if (currentStage.repeat_until) {
+      // Evaluate repeat condition
+      const condition = currentStage.repeat_until;
+      let shouldRepeat = false;
+      try {
+        // Simple condition evaluation — checks output fields
+        if (condition.output_field && condition.equals !== undefined) {
+          shouldRepeat = outputs[condition.output_field] !== condition.equals;
+        } else if (condition.output_field && condition.less_than !== undefined) {
+          shouldRepeat = outputs[condition.output_field] < condition.less_than;
+        }
+      } catch {
+        // If condition evaluation fails, don't repeat
+      }
+      if (shouldRepeat) {
+        return session.current_stage; // stay on same stage
+      }
+    }
+
+    // Skip conditional stages
+    while (candidate < stages.length) {
+      const nextStage = stages[candidate];
+      if (nextStage.skip_when) {
+        // Evaluate skip condition against accumulated outputs
+        const allOutputs = {};
+        for (const completed of session.stages_completed) {
+          Object.assign(allOutputs, completed.outputs || {});
+        }
+        Object.assign(allOutputs, outputs || {});
+
+        let shouldSkip = false;
+        try {
+          // Simple field-based skip: { "field": "value" } means skip when field === value
+          if (typeof nextStage.skip_when === 'object') {
+            shouldSkip = Object.entries(nextStage.skip_when).every(
+              ([k, v]) => allOutputs[k] === v
+            );
+          }
+        } catch {
+          // If evaluation fails, don't skip
+        }
+
+        if (shouldSkip) {
+          session.stages_completed.push({
+            index: candidate,
+            name: nextStage.name,
+            completed_at: new Date().toISOString(),
+            outputs: {},
+            skipped: true,
+          });
+          candidate++;
+          continue;
+        }
+      }
+      break;
+    }
+
+    return candidate;
+  }
+
+  _loadStages(workflowName) {
+    const filePath = path.join(this.stagesDir, `${workflowName}.stages.json`);
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(content);
+      return parsed.stages || [];
+    } catch {
+      return null;
+    }
+  }
+
+  _listWorkflows() {
+    try {
+      return fs.readdirSync(this.stagesDir)
+        .filter((f) => f.endsWith('.stages.json'))
+        .map((f) => f.replace('.stages.json', ''));
+    } catch {
+      return [];
+    }
+  }
+
+  _persist(session) {
+    try {
+      fs.mkdirSync(this.sessionsDir, { recursive: true });
+      const filePath = path.join(this.sessionsDir, `${session.session_id}.json`);
+      fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
+    } catch {
+      // Persistence is best-effort
+    }
+  }
+
+  _restore(sessionId) {
+    // Check in-memory cache first
+    if (this.activeSessions.has(sessionId)) {
+      return this.activeSessions.get(sessionId);
+    }
+    // Try filesystem
+    const filePath = path.join(this.sessionsDir, `${sessionId}.json`);
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const session = JSON.parse(content);
+      this.activeSessions.set(sessionId, session);
+      return session;
+    } catch {
+      return null;
+    }
+  }
+
+  _generateId() {
+    // Simple UUID v4-like ID
+    const bytes = new Array(16);
+    for (let i = 0; i < 16; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
+    return [
+      hex.slice(0, 8),
+      hex.slice(8, 12),
+      hex.slice(12, 16),
+      hex.slice(16, 20),
+      hex.slice(20, 32),
+    ].join('-');
   }
 }
 
@@ -410,6 +767,73 @@ const TOOLS = {
       story: { type: 'string', description: 'The user story text to validate', required: true },
     },
     handler: async ({ story }) => runGsdQuery('user-story.validate', ['--story', story, '--pick', 'valid']),
+  },
+
+  // === Workflow Orchestration (sequentialthinking pattern) ===
+  gsd_workflow: {
+    description: 'Execute a GSD workflow stage by stage. Call this tool to start a new workflow or continue an active one. Each call returns the next stage with instructions. You MUST keep calling this tool with your completed stage outputs until it returns nextStageNeeded: false.\n\nFirst call: provide \'workflow\' and \'args\' to start.\nContinuation: provide \'session_id\' and \'stage_outputs\' from the completed stage.\nStatus check: provide only \'session_id\' to get current state without advancing.\n\nAvailable workflows: execute-phase, plan-phase, discuss-phase, verify-work, ship, complete-milestone, autonomous, execute-plan.',
+    parameters: {
+      workflow: {
+        type: 'string',
+        description: 'Workflow to start (e.g., "execute-phase", "plan-phase", "discuss-phase"). Required on first call only.',
+      },
+      args: {
+        type: 'string',
+        description: 'JSON string of workflow arguments (e.g., \'{"phase": "5"}\' ). Required on first call only.',
+      },
+      session_id: {
+        type: 'string',
+        description: 'Session ID from a previous gsd_workflow call. Required for continuation and status checks.',
+      },
+      stage_outputs: {
+        type: 'string',
+        description: 'JSON string of outputs from the completed stage (e.g., \'{"phase_name": "Auth", "plan_count": 3}\' ). Required for continuation calls.',
+      },
+      force: {
+        type: 'boolean',
+        description: 'Skip stage validation gates. Bypasses are logged for audit. Default: false.',
+      },
+    },
+    handler: async ({ workflow, args, session_id, stage_outputs, force }) => {
+      const engine = new WorkflowEngine(PROJECT_ROOT);
+
+      // Start new workflow
+      if (workflow && !session_id) {
+        let parsedArgs = {};
+        if (args) {
+          try {
+            parsedArgs = JSON.parse(args);
+          } catch {
+            return { success: false, error: `Invalid args JSON: ${args}` };
+          }
+        }
+        const result = engine.start(workflow, parsedArgs, force || false);
+        return { success: !result.error, data: result };
+      }
+
+      // Status check (no stage_outputs)
+      if (session_id && !stage_outputs) {
+        const result = engine.status(session_id);
+        return { success: !result.error, data: result };
+      }
+
+      // Advance workflow
+      if (session_id && stage_outputs) {
+        let parsedOutputs = {};
+        try {
+          parsedOutputs = JSON.parse(stage_outputs);
+        } catch {
+          return { success: false, error: `Invalid stage_outputs JSON: ${stage_outputs}` };
+        }
+        const result = engine.advance(session_id, parsedOutputs, force || false);
+        return { success: !result.error, data: result };
+      }
+
+      return {
+        success: false,
+        error: 'Provide workflow+args to start a new workflow, or session_id+stage_outputs to advance an active one.',
+      };
+    },
   },
 };
 

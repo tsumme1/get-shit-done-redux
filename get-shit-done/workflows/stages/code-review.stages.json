@@ -1,0 +1,105 @@
+{
+  "workflow": "code-review",
+  "version": "1.0",
+  "description": "Automated code review — resolve scope, spawn reviewer agent, commit findings, optionally dispatch fixes.",
+  "stages": [
+    {
+      "index": 0,
+      "name": "init",
+      "instructions": "Initialize the code-review workflow.\n\n1. Call the gsd-guardian MCP tool 'init_phase_op' with the phase number from the workflow args.\n2. Parse the JSON response for:\n   - phase_found (boolean)\n   - phase_dir (string — path to the phase directory)\n   - phase_name (string)\n   - padded_phase (string — zero-padded phase number)\n   - commit_docs (boolean — whether doc commits are enabled)\n3. Parse optional flags from the workflow args:\n   - --depth: one of 'quick', 'standard', or 'deep'. Store as depth_override (empty string if not provided).\n   - --files: comma-separated file list. Store as files_override (empty string if not provided).\n   - --fix: boolean flag indicating whether to auto-dispatch fixes. Store as fix_flag (false if not provided).\n4. If phase_found is false, report the error and stop.\n\nReport all required outputs.",
+      "required_outputs": {
+        "phase_found": { "type": "boolean" },
+        "phase_name": { "type": "string" },
+        "phase_dir": { "type": "string" },
+        "padded_phase": { "type": "string" },
+        "depth_override": { "type": "string" },
+        "files_override": { "type": "string" },
+        "fix_flag": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["init_phase_op"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Phase not found. Ensure the phase number is correct and .planning/ exists."
+    },
+    {
+      "index": 1,
+      "name": "check_config_gate",
+      "instructions": "Check whether code review is enabled in project config.\n\n1. Call the gsd-guardian MCP tool 'config_get' with key 'workflow.code_review'.\n2. Parse the returned value:\n   - If the value is explicitly 'false', set review_enabled to false.\n   - For any other value (including missing/null/undefined), set review_enabled to true. The default is enabled.\n3. If review_enabled is false, report to the user that code review is disabled via config and stop the workflow. Do NOT proceed to subsequent stages.\n\nReport review_enabled.",
+      "required_outputs": {
+        "review_enabled": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["config_get"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Code review is disabled via config (workflow.code_review = false). Enable it or pass --force to override."
+    },
+    {
+      "index": 2,
+      "name": "resolve_depth_and_scope",
+      "instructions": "Determine the review depth and compute the file scope.\n\nReview Depth (highest priority wins):\n1. If depth_override is non-empty, use it directly.\n2. Otherwise, call 'config_get' with key 'workflow.code_review_depth' and use that value.\n3. If neither is set, default to 'standard'.\n4. Validate the resolved depth is one of: 'quick', 'standard', 'deep'. If invalid, fall back to 'standard'.\n\nFile Scope (3 tiers, highest priority wins):\n1. If files_override is non-empty, split on commas and use as the file list. Set scope_tier to 'flag'.\n2. Otherwise, look for SUMMARY.md files in phase_dir. For each SUMMARY.md, extract the list of files created or modified. Set scope_tier to 'summary'.\n3. If no SUMMARY.md files exist or they yield no files, fall back to git diff: run 'git diff --name-only HEAD~10..HEAD' (adjusting the range as needed to cover the phase). Set scope_tier to 'git_diff'.\n\nPost-processing:\n- Exclude any paths under .planning/ (these are planning artifacts, not source code).\n- Filter out files that no longer exist on disk (deleted files).\n- Deduplicate the list.\n- Sort alphabetically.\n- If the resulting file list is empty, report to the user that there are no files to review and stop.\n- If the file count exceeds 50, emit a warning and downgrade depth from 'deep' to 'standard' if applicable.\n\nStore the final depth as review_depth, count as file_count, list as file_list, and tier as scope_tier.\n\nReport all required outputs.",
+      "required_outputs": {
+        "review_depth": { "type": "string" },
+        "file_count": { "type": "number" },
+        "file_list": { "type": "array" },
+        "scope_tier": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["config_get"]
+      }
+    },
+    {
+      "index": 3,
+      "name": "spawn_reviewer",
+      "instructions": "Define and spawn the code reviewer subagent.\n\n1. Read the agent definition from 'agents/gsd-code-reviewer.md' to understand the reviewer agent's capabilities and expected inputs.\n2. Compute the review_path: '${phase_dir}/${padded_phase}-REVIEW.md'.\n3. Compute the diff_base by inspecting git log to find the appropriate base commit for the phase.\n4. Define the gsd-code-reviewer subagent with the following prompt inputs:\n   - file_list: the resolved list of files to review\n   - review_depth: the resolved depth ('quick', 'standard', or 'deep')\n   - phase_dir: path to the phase directory\n   - review_path: the target output path for REVIEW.md\n   - diff_base: the base commit for generating diffs\n5. Spawn the subagent and wait for it to complete. Do NOT proceed to the next stage until the reviewer agent finishes.\n6. Set reviewer_spawned to true once the agent is launched.\n7. Set review_complete to true once the agent finishes successfully.\n\nReport all required outputs.",
+      "required_outputs": {
+        "reviewer_spawned": { "type": "boolean" },
+        "review_complete": { "type": "boolean" },
+        "review_path": { "type": "string" }
+      },
+      "hints": {
+        "spawn_agents": ["gsd-code-reviewer"],
+        "files_to_read": ["agents/gsd-code-reviewer.md"]
+      }
+    },
+    {
+      "index": 4,
+      "name": "commit_review",
+      "instructions": "Validate and commit the REVIEW.md artifact.\n\n1. Verify that REVIEW.md was created at review_path. If the file does not exist, set review_valid to false and report a warning — the reviewer agent may have failed.\n2. If the file exists, read it and validate:\n   - It must contain YAML frontmatter (delimited by '---' lines).\n   - The frontmatter must include a 'status' field (e.g., 'clean', 'warnings', 'critical').\n   - If validation fails, set review_valid to false and report the issue.\n3. If review_valid is true and commit_docs config allows (check init stage's commit_docs output):\n   - Call the gsd-guardian MCP tool 'commit' with:\n     - message: 'docs(${padded_phase}): add code review report'\n     - files: the review_path\n   - Set committed to true.\n4. If commit_docs is disabled, set committed to false and note that the review was not committed per config.\n\nReport all required outputs.",
+      "required_outputs": {
+        "review_valid": { "type": "boolean" },
+        "committed": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["commit"]
+      }
+    },
+    {
+      "index": 5,
+      "name": "dispatch_fix",
+      "instructions": "Optionally dispatch the code-review-fix workflow.\n\nThis stage is skipped entirely if fix_flag is false.\n\n1. Build the fix workflow args:\n   - Include the phase number.\n   - If --all was present in the original workflow args, pass it through.\n   - If --auto was present, pass it through.\n2. Delegate to the code-review-fix workflow by calling the gsd-guardian MCP tool 'gsd_workflow' with workflow 'code-review-fix' and the constructed args.\n3. Set fix_dispatched to true once the fix workflow is launched.\n4. Record the fix_result: 'dispatched' if successful, or the error message if it fails.\n\nReport all required outputs.",
+      "required_outputs": {
+        "fix_dispatched": { "type": "boolean" },
+        "fix_result": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["gsd_workflow"]
+      },
+      "skip_when": { "fix_flag": false }
+    },
+    {
+      "index": 6,
+      "name": "present_results",
+      "instructions": "Read REVIEW.md and present the final summary to the user.\n\n1. Read the REVIEW.md file at review_path.\n2. Parse the YAML frontmatter to extract:\n   - status: the overall review status (e.g., 'clean', 'warnings', 'critical')\n   - files_reviewed: number of files reviewed\n   - critical: count of critical findings\n   - warning: count of warning findings\n   - info: count of informational findings\n   - total: total finding count\n3. Display an inline summary to the user:\n   - Review status\n   - Files reviewed count\n   - Finding breakdown: critical / warning / info / total\n   - Review depth used\n   - Scope tier used\n4. If total findings > 0, suggest next steps:\n   - Run 'code-review --fix' to auto-fix applicable issues\n   - View the full report at review_path\n5. If critical > 0, list the top 3 critical issues inline (extract from the REVIEW.md body).\n6. Set next_action based on results:\n   - If status is 'clean': 'verify-work' (proceed to verification)\n   - If critical > 0: 'code-review --fix' (address critical issues first)\n   - Otherwise: 'verify-work' (warnings are informational)\n\nReport all required outputs.",
+      "required_outputs": {
+        "status": { "type": "string" },
+        "total_findings": { "type": "number" },
+        "next_action": { "type": "string" }
+      },
+      "hints": {
+        "files_to_read": ["${review_path}"]
+      }
+    }
+  ]
+}

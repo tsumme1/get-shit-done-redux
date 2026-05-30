@@ -1,0 +1,135 @@
+{
+  "workflow": "plan-phase",
+  "version": "1.0",
+  "description": "Create detailed phase plans (PLAN.md files) with research, planning, and verification loop.",
+  "stages": [
+    {
+      "index": 0,
+      "name": "init",
+      "instructions": "Initialize the plan-phase workflow.\n\n1. Call the gsd-guardian MCP tool 'init_plan_phase' with the phase number.\n2. Parse the JSON response for:\n   - phase_found, phase_dir, phase_name, phase_number, padded_phase\n   - phase_status (check if 'Complete' — blocked unless force)\n   - has_context, has_research, has_plans, plan_count\n   - planning_exists, roadmap_exists, phase_req_ids\n3. Call 'config_get' for 'workflow.research' and 'workflow.tdd_mode'.\n4. If planning_exists is false, report error (run new-project first).\n5. If phase_status is 'Complete' and force is not set, report blocked.\n\nReport all required outputs.",
+      "required_outputs": {
+        "phase_found": { "type": "boolean" },
+        "phase_name": { "type": "string" },
+        "phase_dir": { "type": "string" },
+        "phase_status": { "type": "string" },
+        "has_context": { "type": "boolean" },
+        "has_research": { "type": "boolean" },
+        "has_plans": { "type": "boolean" },
+        "planning_exists": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["init_plan_phase", "config_get"],
+        "files_to_read": [".planning/STATE.md"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Phase not found or .planning/ does not exist."
+    },
+    {
+      "index": 1,
+      "name": "validate_prerequisites",
+      "instructions": "Ensure prerequisites for planning are met.\n\n1. Check if CONTEXT.md exists in the phase directory (has_context from init).\n2. If CONTEXT.md is missing:\n   - Ask the user: 'Continue without context (less informed plans)' / 'Run discuss-phase first'\n   - If user chooses discuss-phase, report context_source as 'abort' — workflow exits.\n3. If CONTEXT.md exists, read it and extract:\n   - Implementation decisions\n   - Phase boundaries\n   - Canonical references\n4. Report context source and whether it was loaded.\n\nThis gate ensures planning is informed by discussion decisions.",
+      "required_outputs": {
+        "context_loaded": { "type": "boolean" },
+        "context_source": { "type": "string" }
+      },
+      "hints": {
+        "files_to_read": ["${phase_dir}/"]
+      }
+    },
+    {
+      "index": 2,
+      "name": "research",
+      "instructions": "Handle the research phase.\n\n1. Check if RESEARCH.md already exists in the phase directory.\n2. If research exists, load it and report research_status as 'complete'.\n3. If research is missing and not skipped via args:\n   - Ask the user: 'Research first (recommended)' / 'Skip research'\n   - If researching: define and spawn a 'gsd-phase-researcher' subagent\n   - The researcher should analyze the codebase, identify patterns, and produce RESEARCH.md\n   - Wait for the researcher to complete\n4. If --skip-research was passed, report 'skipped'.\n\nReport research status.",
+      "required_outputs": {
+        "research_status": { "type": "string" }
+      },
+      "hints": {
+        "spawn_agents": ["gsd-phase-researcher"]
+      }
+    },
+    {
+      "index": 3,
+      "name": "pre_planning_gates",
+      "instructions": "Run pre-planning validation gates.\n\n1. Validation Strategy: Check if ${padded_phase}-VALIDATION.md exists.\n   If missing, create one from the RESEARCH.md 'Validation Architecture' section.\n   Report validation_strategy_created.\n\n2. Security: Check config 'workflow.security_enforcement'.\n   If enabled, note security requirements for the planner.\n   Report security_reviewed.\n\n3. UI-SPEC: If the phase involves frontend work (check CONTEXT.md for UI indicators),\n   check if a UI-SPEC.md exists. If missing and frontend is involved, note this.\n   Report ui_spec_status as 'exists', 'missing', or 'not_needed'.\n\nThese gates inform the planner's prompt with additional constraints.",
+      "required_outputs": {
+        "validation_strategy_created": { "type": "boolean" },
+        "security_reviewed": { "type": "boolean" },
+        "ui_spec_status": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["config_get"]
+      }
+    },
+    {
+      "index": 4,
+      "name": "spawn_planner",
+      "instructions": "Spawn the planner subagent to create PLAN.md files.\n\n1. Define a 'gsd-planner' subagent type using define_subagent.\n2. Call 'agent_skills' with 'gsd-planner' to get the planner's system prompt.\n3. Spawn the planner with a comprehensive prompt including:\n   - Phase goal from ROADMAP.md\n   - CONTEXT.md decisions\n   - RESEARCH.md findings (if available)\n   - VALIDATION.md strategy (if created)\n   - Security and UI constraints (if applicable)\n   - Phase requirements (phase_req_ids)\n4. The planner should produce PLAN-*.md files in the phase directory.\n5. Wait for the planner to complete.\n\nReport that the planner was spawned and its subagent ID.",
+      "required_outputs": {
+        "planner_spawned": { "type": "boolean" },
+        "subagent_id": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["agent_skills"],
+        "spawn_agents": ["gsd-planner"]
+      }
+    },
+    {
+      "index": 5,
+      "name": "planner_return",
+      "instructions": "Process the planner's output.\n\n1. Check the phase directory for PLAN-*.md files.\n2. Count the plans created and list their file paths.\n3. If no plans were created, report the error.\n4. Read each plan's YAML frontmatter for:\n   - plan_id, title, wave, files_modified, requirements\n5. Verify plans cover the phase's requirements (phase_req_ids).\n\nReport plan count and file paths.",
+      "required_outputs": {
+        "plans_on_disk": { "type": "boolean" },
+        "plan_count": { "type": "number" },
+        "plan_files": { "type": "array" }
+      }
+    },
+    {
+      "index": 6,
+      "name": "plan_verification",
+      "instructions": "Verify plan quality with the plan-checker.\n\n1. Define a 'gsd-plan-checker' subagent type using define_subagent.\n2. Call 'agent_skills' with 'gsd-plan-checker' for the checker's system prompt.\n3. Spawn the checker with all PLAN.md files and the phase context.\n4. The checker should evaluate:\n   - Plan completeness\n   - Cross-plan consistency\n   - Requirement coverage\n   - File conflict detection\n5. If issues are found, spawn the planner again with revision instructions (max 3 iterations).\n6. Track revision count.\n\nReport checker status and revision count.",
+      "required_outputs": {
+        "checker_status": { "type": "string" },
+        "revision_count": { "type": "number" }
+      },
+      "hints": {
+        "spawn_agents": ["gsd-plan-checker", "gsd-planner"]
+      }
+    },
+    {
+      "index": 7,
+      "name": "coverage_gates",
+      "instructions": "Run coverage gates to ensure nothing was dropped.\n\n1. Requirements Coverage: Compare plan frontmatter 'requirements' fields against phase_req_ids.\n   If any REQ-IDs are uncovered, this is BLOCKING:\n   - Ask user: 'Re-plan to cover missing' / 'Move to next phase' / 'Proceed anyway'\n\n2. Decision Coverage: Call 'check_decision_coverage' MCP tool.\n   This checks that CONTEXT.md decisions weren't dropped during planning.\n   If decisions were dropped, this is BLOCKING.\n\nReport whether both gates pass.",
+      "required_outputs": {
+        "requirements_covered": { "type": "boolean" },
+        "decisions_covered": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["check_decision_coverage"]
+      }
+    },
+    {
+      "index": 8,
+      "name": "persist",
+      "instructions": "Persist the planning results.\n\n1. Call 'state_planned_phase' to record planning completion in STATE.md.\n2. Call 'roadmap_annotate_dependencies' to annotate wave dependencies in ROADMAP.md.\n3. Commit all PLAN.md files, STATE.md, and ROADMAP.md using the 'commit' MCP tool:\n   - Message: 'docs: plan phase ${phase_number} — ${phase_name} (${plan_count} plans)'\n\nReport persistence status.",
+      "required_outputs": {
+        "committed": { "type": "boolean" },
+        "state_updated": { "type": "boolean" },
+        "roadmap_annotated": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["state_planned_phase", "roadmap_annotate_dependencies", "commit"]
+      }
+    },
+    {
+      "index": 9,
+      "name": "auto_advance",
+      "instructions": "Determine next steps after planning.\n\n1. If auto-chain mode is active (check config 'workflow.auto_advance' or --auto flag):\n   - Report next_action as 'execute' — the caller should start execute-phase.\n2. Otherwise, present the user with a summary:\n   - Plans created and their wave structure\n   - Suggested next command: 'execute phase N'\n   - Report next_action as 'stop'.\n\nReport the next action.",
+      "required_outputs": {
+        "next_action": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["config_get"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+{
+  "workflow": "execute-plan",
+  "version": "1.0",
+  "description": "Execute a single plan file end-to-end: parse, execute tasks, verify acceptance criteria, commit, and report.",
+  "stages": [
+    {
+      "index": 0,
+      "name": "init",
+      "instructions": "Initialize the execute-plan workflow by loading the plan file.\n\n1. Parse the plan file path from workflow args.\n2. Read the PLAN-*.md file using view_file.\n3. Extract YAML frontmatter fields:\n   - phase, plan_id (e.g. 'A', 'B'), subsystem, tags\n   - requirements (array of REQ-IDs covered)\n   - task count (number of tasks in the plan body)\n   - acceptance_criteria (array from frontmatter or plan footer)\n4. Derive phase_dir from the plan file's parent directory.\n5. Read CONTEXT.md from the phase directory for implementation decisions.\n6. If the plan file cannot be read or frontmatter is missing, report failure.\n\nReport all required outputs.",
+      "required_outputs": {
+        "plan_loaded": { "type": "boolean" },
+        "plan_id": { "type": "string" },
+        "task_count": { "type": "number" },
+        "phase_dir": { "type": "string" },
+        "acceptance_criteria_count": { "type": "number" }
+      },
+      "hints": {
+        "files_to_read": ["${plan_file}", "${phase_dir}/CONTEXT.md"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Plan file could not be loaded or parsed. Check the file path and frontmatter."
+    },
+    {
+      "index": 1,
+      "name": "previous_check",
+      "instructions": "Check for previous execution state for this plan.\n\n1. Look for an existing SUMMARY.md for this plan in the phase directory.\n   The filename pattern is ${padded_phase}-${plan_id}-SUMMARY.md.\n2. If found, read it and extract:\n   - completed_task_count: how many tasks were already done\n   - unresolved_issues: any issues noted in the previous run\n   - blockers: any blockers that caused the previous run to stop\n3. Set is_continuation to true if a SUMMARY exists, false otherwise.\n4. If this is a continuation, log the prior state so subsequent stages can skip completed tasks.\n5. If no SUMMARY exists, report a fresh start with completed_task_count of 0.\n\nReport all required outputs.",
+      "required_outputs": {
+        "is_continuation": { "type": "boolean" },
+        "completed_task_count": { "type": "number" }
+      },
+      "hints": {
+        "files_to_read": ["${phase_dir}/${padded_phase}-${plan_id}-SUMMARY.md"]
+      }
+    },
+    {
+      "index": 2,
+      "name": "execute_tasks",
+      "instructions": "Execute each task in the plan sequentially.\n\n1. Iterate through the tasks listed in the plan body.\n   If this is a continuation, skip tasks already completed (from previous_check).\n2. For each task:\n   a. Read any @context file references using view_file (e.g. '@context src/foo.ts' means read that file first).\n   b. Implement the change using the appropriate tools (write_to_file, replace_file_content, run_command, etc.).\n   c. After implementing, verify the task's acceptance criteria if specified inline.\n   d. Track the task as completed.\n3. If a task hits a checkpoint (tagged 'human-verify' or 'decision' in the plan), pause execution:\n   - Set checkpoint_hit to true and checkpoint_type to the tag value.\n   - Report the checkpoint reason and wait for user input before continuing.\n4. If a task fails, attempt one retry before marking it as failed and continuing.\n\nReport all required outputs after each iteration.",
+      "required_outputs": {
+        "tasks_completed": { "type": "number" },
+        "tasks_remaining": { "type": "number" },
+        "checkpoint_hit": { "type": "boolean" },
+        "checkpoint_type": { "type": "string" }
+      },
+      "repeat_until": {
+        "output_field": "tasks_remaining",
+        "equals": 0
+      }
+    },
+    {
+      "index": 3,
+      "name": "acceptance_gate",
+      "instructions": "HARD GATE: Verify ALL acceptance criteria from the plan pass.\n\n1. Read the acceptance criteria extracted during init.\n2. For each criterion:\n   a. Run the verification command if specified (e.g. 'npm test', 'grep -r pattern').\n   b. If no command, perform the check manually (e.g. file exists, export present).\n   c. Record pass or fail for each criterion.\n3. If any criterion fails, attempt a fix:\n   a. Analyze the failure and apply a targeted correction.\n   b. Re-run the verification.\n   c. Maximum 2 fix attempts per failing criterion.\n4. After all attempts, compile the list of failed criteria.\n5. Set all_criteria_passed to true only if every criterion passed.\n\nThis is a hard gate — execution cannot proceed to commit if criteria fail.",
+      "required_outputs": {
+        "all_criteria_passed": { "type": "boolean" },
+        "failed_criteria": { "type": "array" },
+        "fix_attempts": { "type": "number" }
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Acceptance criteria failed after fix attempts. Review failed_criteria output for details."
+    },
+    {
+      "index": 4,
+      "name": "run_verification",
+      "instructions": "Run verification commands listed in the plan.\n\n1. Check the plan for a 'Verification' or 'Testing' section.\n2. For each verification command listed (test suites, build checks, lint commands):\n   a. Run the command using run_command.\n   b. Record the exit code, stdout summary, and pass/fail status.\n   c. Add to verification_results array.\n3. If any verification fails:\n   a. Check config 'workflow.node_repair' — if enabled, attempt a node-repair loop:\n      - Analyze the failure output\n      - Apply a fix\n      - Re-run the failing command\n      - Max 2 repair iterations\n   b. If repair is disabled or fails, record the failure.\n4. Set verification_passed to true only if all commands pass.\n\nReport all required outputs.",
+      "required_outputs": {
+        "verification_passed": { "type": "boolean" },
+        "verification_results": { "type": "array" }
+      },
+      "hints": {
+        "mcp_tools": ["config_get"]
+      }
+    },
+    {
+      "index": 5,
+      "name": "create_summary",
+      "instructions": "Create the plan execution summary file.\n\n1. Create ${padded_phase}-${plan_id}-SUMMARY.md in the phase directory.\n2. Include YAML frontmatter with:\n   - phase, plan, subsystem, tags\n   - key-files: list of files created or modified\n   - key-decisions: significant implementation decisions made during execution\n   - requirements-completed: REQ-IDs satisfied by this plan\n   - duration: approximate execution time\n3. Include a markdown body with sections:\n   - **Accomplishments**: what was built or changed\n   - **Files Changed**: table of files with change type (created/modified/deleted)\n   - **Issues Encountered**: problems hit during execution and how they were resolved\n   - **Deviations from Plan**: any changes from the original plan and why\n   - **Self-Check**: PASSED or FAILED based on acceptance gate results\n4. Write the file using write_to_file.\n\nReport all required outputs.",
+      "required_outputs": {
+        "summary_file": { "type": "string" },
+        "summary_created": { "type": "boolean" }
+      }
+    },
+    {
+      "index": 6,
+      "name": "commit",
+      "instructions": "Atomic commit of all changes plus SUMMARY.md.\n\n1. Use the 'commit' gsd-guardian MCP tool to commit all staged changes.\n2. Commit message format: 'feat: execute phase ${phase} plan ${plan_id} — ${subsystem}'\n3. If operating in worktree mode (check workflow args or branching context):\n   - Exclude STATE.md and ROADMAP.md from the commit\n   - These files are managed by the orchestrator, not individual plan executors\n4. Verify the commit was created by checking the returned commit hash.\n5. If commit fails, report the error — do not retry automatically.\n\nReport all required outputs.",
+      "required_outputs": {
+        "committed": { "type": "boolean" },
+        "commit_hash": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["commit"]
+      }
+    },
+    {
+      "index": 7,
+      "name": "report",
+      "instructions": "Report completion and update roadmap progress.\n\n1. Call 'roadmap_update_plan_progress' gsd-guardian MCP tool to mark this plan as complete.\n2. Compile a completion report including:\n   - plan_id and subsystem\n   - Total tasks completed\n   - Acceptance criteria status (all passed / N failed)\n   - Verification status (passed / failed)\n   - Duration\n   - Commit hash\n3. Determine next_action:\n   - If more plans remain in the wave: 'next_plan'\n   - If this was the last plan in the wave: 'wave_complete'\n   - If this was the last plan in the phase: 'phase_complete'\n   - If there were failures: 'needs_review'\n4. Report the completion summary to the orchestrator.\n\nReport all required outputs.",
+      "required_outputs": {
+        "roadmap_updated": { "type": "boolean" },
+        "next_action": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["roadmap_update_plan_progress"]
+      }
+    }
+  ]
+}

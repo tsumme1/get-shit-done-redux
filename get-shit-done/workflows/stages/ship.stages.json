@@ -1,0 +1,78 @@
+{
+  "workflow": "ship",
+  "version": "1.0",
+  "description": "Ship a phase — push branch, create PR, optional review, and finalize state.",
+  "stages": [
+    {
+      "index": 0,
+      "name": "init",
+      "instructions": "Initialize the ship workflow.\n\n1. Call the gsd-guardian MCP tool 'init_phase_op' with the phase number.\n2. Parse the JSON response for:\n   - phase_found, phase_dir, phase_name, padded_phase\n   - branching_strategy, branch_name\n3. Call 'state_load' to get current project state.\n4. Call 'config_get' with key 'git.base_branch' to determine the base branch (defaults to 'main').\n5. If phase_found is false, report error — cannot ship a non-existent phase.\n\nReport all required outputs.",
+      "required_outputs": {
+        "phase_found": { "type": "boolean" },
+        "phase_name": { "type": "string" },
+        "phase_dir": { "type": "string" },
+        "base_branch": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["init_phase_op", "state_load", "config_get"],
+        "files_to_read": [".planning/STATE.md"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Phase not found. Ensure the phase number is correct and .planning/ exists."
+    },
+    {
+      "index": 1,
+      "name": "preflight_checks",
+      "instructions": "Run 5 preflight checks before shipping.\n\n1. VERIFICATION.md: Check that ${phase_dir}/VERIFICATION.md exists and contains a status of 'pass' or 'passed'. Read the file and look for the status field. Report verification_ok.\n2. Clean working tree: Run 'git status --porcelain' and check for no output. Report tree_clean.\n3. Not on base branch: Run 'git rev-parse --abbrev-ref HEAD' and confirm it is not the base_branch. Report branch_ok.\n4. Remote configured: Run 'git remote get-url origin' and confirm it succeeds. Report remote_ok.\n5. gh CLI available: Run 'gh auth status' and confirm authentication. Report gh_available.\n\nSet preflight_passed to true only if ALL 5 checks pass. If any check fails, report which ones failed so the user can fix them before retrying.",
+      "required_outputs": {
+        "verification_ok": { "type": "boolean" },
+        "tree_clean": { "type": "boolean" },
+        "branch_ok": { "type": "boolean" },
+        "remote_ok": { "type": "boolean" },
+        "gh_available": { "type": "boolean" },
+        "preflight_passed": { "type": "boolean" }
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Preflight checks failed. Fix the reported issues and retry."
+    },
+    {
+      "index": 2,
+      "name": "push_and_create_pr",
+      "instructions": "Push the branch and create a pull request.\n\n1. Push the current branch to origin using run_command: 'git push -u origin HEAD'. Report branch_pushed.\n2. Generate the PR body by reading and combining:\n   - ROADMAP.md: extract the phase goal line\n   - SUMMARY.md files: gather changes-per-plan from each plan directory under ${phase_dir}\n   - Requirements: list all REQ-IDs covered by the phase\n   - Verification: include the VERIFICATION.md status summary\n   - Key decisions: extract notable decisions from CONTEXT.md if present\n3. Create the PR using run_command:\n   'gh pr create --base ${base_branch} --title \"Phase ${phase_number}: ${phase_name}\" --body \"<generated body>\"'\n4. Parse the output for the PR URL. Extract the PR number from the URL.\n5. Report pr_number, pr_url, and pr_created.\n\nIf PR creation fails (e.g., PR already exists), try 'gh pr view --json number,url' to retrieve the existing PR details instead.",
+      "required_outputs": {
+        "branch_pushed": { "type": "boolean" },
+        "pr_number": { "type": "number" },
+        "pr_url": { "type": "string" },
+        "pr_created": { "type": "boolean" }
+      },
+      "hints": {
+        "files_to_read": [".planning/ROADMAP.md", "${phase_dir}/VERIFICATION.md", "${phase_dir}/CONTEXT.md"]
+      }
+    },
+    {
+      "index": 3,
+      "name": "optional_review",
+      "instructions": "Handle optional code review.\n\n1. Call 'config_get' with key 'workflow.code_review_command' to check for an external review tool.\n2. If an external review command is configured:\n   - Run the command via run_command.\n   - Parse the output for a verdict: 'APPROVED' or 'REVISE'.\n   - Report review_status as 'external' and review_decision as the parsed verdict.\n3. If no external review is configured, present the user with options via ask_question:\n   - Option A: 'Skip review — merge when ready'\n   - Option B: 'Self-review — I will review the diff now'\n   - Option C: 'Request reviewer — add a GitHub reviewer'\n4. If the user chooses option C, prompt for reviewer username and run:\n   'gh pr edit ${pr_number} --add-reviewer <username>'\n   Report review_status as 'reviewer_requested' and review_decision as 'pending'.\n5. If the user chooses option A, report review_status as 'skipped' and review_decision as 'none'.\n6. If the user chooses option B, report review_status as 'self' and review_decision as 'pending'.\n\nReport review_status and review_decision.",
+      "required_outputs": {
+        "review_status": { "type": "string" },
+        "review_decision": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["config_get"]
+      }
+    },
+    {
+      "index": 4,
+      "name": "finalize",
+      "instructions": "Finalize ship state and present summary.\n\n1. Update STATE.md via the 'state_update' MCP tool:\n   - Set Last Activity to 'Shipped phase ${phase_number} — PR #${pr_number}'\n   - Set Status to 'shipped' or 'awaiting review' depending on review_decision\n2. Commit state changes using the 'commit' MCP tool:\n   - Message: 'docs: ship phase ${phase_number} — ${phase_name} (PR #${pr_number})'\n3. Display a ship summary to the user:\n   - PR number and URL\n   - Branch name\n   - Number of commits (run 'git log --oneline ${base_branch}..HEAD | wc -l')\n   - Verification status\n   - Requirements covered\n   - Review status\n4. Suggest next steps based on review_decision:\n   - If 'none' or 'APPROVED': 'Merge the PR when CI passes, then run complete-milestone'\n   - If 'pending': 'Wait for review feedback, then merge'\n   - If 'REVISE': 'Address review comments, push updates, then re-ship'\n\nReport state_updated, committed, and next_action.",
+      "required_outputs": {
+        "state_updated": { "type": "boolean" },
+        "committed": { "type": "boolean" },
+        "next_action": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["state_update", "commit"]
+      }
+    }
+  ]
+}

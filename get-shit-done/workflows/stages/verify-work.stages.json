@@ -1,0 +1,95 @@
+{
+  "workflow": "verify-work",
+  "version": "1.0",
+  "description": "Conversational UAT (User Acceptance Testing) — present tests to the user, collect pass/fail/skip verdicts, document gaps for remediation.",
+  "stages": [
+    {
+      "index": 0,
+      "name": "init",
+      "instructions": "Initialize the verify-work workflow.\n\n1. Call the gsd-guardian MCP tool 'init_verify_work' with the phase number from the workflow args.\n2. Parse the JSON response for:\n   - phase_found (boolean)\n   - phase_dir (string — path to the phase directory)\n   - phase_name (string)\n   - phase_number (number)\n   - padded_phase (string — zero-padded phase number)\n3. If phase_found is false, report the error and stop.\n4. Call the gsd-guardian MCP tool 'phase_mvp_mode' with the phase number to detect MVP mode.\n5. Read .planning/STATE.md to get current project state.\n\nReport all required outputs.",
+      "required_outputs": {
+        "phase_found": { "type": "boolean" },
+        "phase_name": { "type": "string" },
+        "phase_dir": { "type": "string" },
+        "mvp_mode": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["init_verify_work", "phase_mvp_mode"],
+        "files_to_read": [".planning/STATE.md"]
+      },
+      "fatal_on_fail": true,
+      "fail_message": "Phase not found. Verify the phase number exists in ROADMAP.md."
+    },
+    {
+      "index": 1,
+      "name": "discover_summaries",
+      "instructions": "Find execution summaries and check for prior UAT sessions.\n\n1. Scan the phase directory for all *-SUMMARY.md files. Count them and store as summary_count.\n2. Check for any existing *-UAT.md files in the phase directory (indicates a prior UAT session).\n3. If an existing UAT file is found (has_existing_uat is true):\n   - Ask the user via ask_question: 'Resume existing session' / 'Start fresh'\n   - Record the user's decision as 'resume' or 'fresh'.\n4. If no existing UAT file is found, set decision to 'fresh'.\n5. For each SUMMARY.md, extract the list of testable deliverables:\n   - Completed features and their acceptance criteria\n   - Files created or modified\n   - Integration points\n6. Set deliverables_extracted to true once all summaries are parsed.\n\nIf summary_count is 0, this stage is skipped — no summaries means nothing to verify.",
+      "required_outputs": {
+        "summary_count": { "type": "number" },
+        "has_existing_uat": { "type": "boolean" },
+        "decision": { "type": "string" },
+        "deliverables_extracted": { "type": "boolean" }
+      },
+      "hints": {
+        "files_to_read": ["${phase_dir}/"]
+      },
+      "skip_when": { "summary_count": 0 }
+    },
+    {
+      "index": 2,
+      "name": "generate_tests",
+      "instructions": "Generate UAT test items from the discovered deliverables.\n\n1. From the SUMMARY deliverables extracted in the previous stage, generate test items.\n   Each test item should have:\n   - A unique ID (e.g., UAT-001)\n   - A description of what to verify\n   - Expected outcome\n   - Status: 'pending'\n2. In MVP mode (mvp_mode is true):\n   - Prioritize user-flow tests (end-to-end scenarios the user would exercise)\n   - Defer purely technical/internal tests to a 'deferred' section\n3. Call the gsd-guardian MCP tool 'user_story_validate' to validate that test items\n   align with the phase's user stories and acceptance criteria.\n4. Create the UAT.md file in the phase directory:\n   - Path: ${phase_dir}/${padded_phase}-UAT.md\n   - Include a header with phase name, date, and test count\n   - List all test items in a structured format with 'pending' status\n   - Include a Gaps section (initially empty)\n   - Include a Summary section (initially empty)\n5. Report the file path and test count.\n\nReport all required outputs.",
+      "required_outputs": {
+        "test_count": { "type": "number" },
+        "uat_file_path": { "type": "string" },
+        "uat_created": { "type": "boolean" }
+      },
+      "hints": {
+        "mcp_tools": ["user_story_validate"]
+      }
+    },
+    {
+      "index": 3,
+      "name": "run_uat_session",
+      "instructions": "Present tests to the user one at a time and collect verdicts.\n\n1. For each test item in the UAT.md file, present it to the user via ask_question:\n   - Show the test ID, description, and expected outcome\n   - Offer choices: 'Pass' / 'Skip' / 'Report Issue'\n2. If the user selects 'Pass':\n   - Update the test status to 'passed' in UAT.md\n   - Increment passed_count\n3. If the user selects 'Skip':\n   - Update the test status to 'skipped' in UAT.md\n   - Increment skipped_count\n4. If the user selects 'Report Issue':\n   - Ask a follow-up question for severity: 'blocker' / 'major' / 'minor' / 'cosmetic'\n   - Record the issue description and severity in UAT.md under the test item\n   - Update the test status to 'failed' in UAT.md\n   - Increment failed_count and issues_found\n5. Update UAT.md on disk after each response to preserve progress.\n6. After all tests are processed, set session_complete to true.\n7. Track running totals: passed_count, failed_count, skipped_count, issues_found.\n\nThis stage repeats until session_complete is true (all tests processed).",
+      "required_outputs": {
+        "passed_count": { "type": "number" },
+        "failed_count": { "type": "number" },
+        "skipped_count": { "type": "number" },
+        "issues_found": { "type": "number" },
+        "session_complete": { "type": "boolean" }
+      },
+      "hints": {},
+      "repeat_until": {
+        "output_field": "session_complete",
+        "equals": true
+      }
+    },
+    {
+      "index": 4,
+      "name": "diagnose_and_plan",
+      "instructions": "Diagnose reported issues and create a remediation plan.\n\n1. Call the gsd-guardian MCP tool 'audit_open' to surface related audit items\n   and cross-reference with the issues reported during the UAT session.\n2. For each blocker or major issue:\n   - Create a gap entry in the UAT.md Gaps section\n   - Format each gap for consumption by plan-phase --gaps:\n     - GAP-ID, description, severity, related test ID, suggested fix approach\n3. For minor and cosmetic issues:\n   - Document them in the Gaps section but mark as 'deferred'\n4. Write the updated UAT.md with the populated Gaps section.\n5. Construct a remediation_plan string summarizing:\n   - Number of gaps documented\n   - Recommended next step: run 'plan-phase --gaps' to generate fix plans\n\nThis stage is skipped if issues_found is 0.\n\nReport all required outputs.",
+      "required_outputs": {
+        "gaps_documented": { "type": "boolean" },
+        "gap_count": { "type": "number" },
+        "remediation_plan": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["audit_open"]
+      },
+      "skip_when": { "issues_found": 0 }
+    },
+    {
+      "index": 5,
+      "name": "finalize",
+      "instructions": "Commit UAT results and report the final summary.\n\n1. Commit the UAT.md file using the gsd-guardian 'commit' MCP tool:\n   - Message: 'docs: verify phase ${phase_number} — ${phase_name} UAT'\n   - Files: the UAT.md file path\n2. Call 'state_record_session' to record the verification session in STATE.md.\n3. Report a summary to the user:\n   - Total tests: test_count\n   - Passed: passed_count\n   - Failed: failed_count\n   - Skipped: skipped_count\n   - Issues found: issues_found\n   - Gaps documented: gap_count (if applicable)\n4. Suggest next action based on results:\n   - If all tests passed (failed_count == 0 and issues_found == 0): next_action is 'ship'\n   - If issues exist: next_action is 'plan-phase --gaps'\n\nReport all required outputs.",
+      "required_outputs": {
+        "committed": { "type": "boolean" },
+        "next_action": { "type": "string" }
+      },
+      "hints": {
+        "mcp_tools": ["commit", "state_record_session"]
+      }
+    }
+  ]
+}

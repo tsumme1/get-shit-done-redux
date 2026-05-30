@@ -6,6 +6,17 @@ For current work on **Grok Build compatibility** and multi-runtime synchronizati
 
 - `docs/discussions/grok-build-support-2026-05.md`
 
+## GSD Workflow Enforcement (Strict Mode — Default)
+
+When this project has `.planning/` directory (indicating GSD is active):
+
+1. **Route all code changes through GSD.** Do not edit source files directly outside a GSD workflow. Use `gsd-fast` for trivial tasks, `gsd-quick` for tasks needing planning, or the full `discuss → plan → execute` workflow for complex work.
+2. **Use gsd-guardian MCP for all GSD operations.** Call `call_mcp_tool(ServerName: "gsd-guardian", ...)` instead of raw `run_command` with `gsd-tools.cjs`. The MCP server provides validation and audit logging.
+3. **Spawn subagents when workflows require delegation.** When a workflow specifies `Agent()`, use `define_subagent` + `invoke_subagent` — never inline the work. This preserves fresh context and worktree isolation.
+4. **Run enforcement checkpoints.** After critical operations (subagent spawns, required file reads, MCP tool calls), run the corresponding enforcement script from `get-shit-done/scripts/enforce-*.sh`.
+5. **Override with --force.** Any enforcement gate can be bypassed by passing `--force` in the user's command arguments. Bypasses are logged to `.planning/.gsd-audit.jsonl`.
+6. **Use `gsd_workflow` for multi-step workflows.** For complex workflows (`discuss-phase`, `plan-phase`, `execute-phase`, `verify-work`, `ship`, `complete-milestone`, `autonomous`), call `call_mcp_tool(ServerName: "gsd-guardian", ToolName: "gsd_workflow", ...)` in a loop. The server gates progress one stage at a time — the agent cannot skip ahead.
+
 ## Project Structure & Module Organization
 
 This repository ships GSD as a Node.js CLI and SDK. Root package entry points live in `bin/`, scripts in `scripts/`, runtime hooks in `hooks/`, command definitions in `commands/gsd/`, and workflow/template content in `get-shit-done/`. Agent role files are in `agents/`; docs are in `docs/`; logos and terminal images are in `assets/`. Root tests are in `tests/*.test.cjs`. The TypeScript SDK is isolated under `sdk/`, with source and Vitest tests in `sdk/src/`.

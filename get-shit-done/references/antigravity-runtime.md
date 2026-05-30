@@ -200,6 +200,72 @@ Every `gsd_run query <verb>` becomes `call_mcp_tool(ServerName: "gsd-guardian", 
 > The MCP server is the ONLY authorized interface. Using `run_command` bypasses
 > validation and audit logging built into the MCP server.
 
+## Workflow Orchestration — `gsd_workflow` MCP Tool
+
+> [!IMPORTANT]
+> For multi-step workflows, use the `gsd_workflow` tool instead of reading SKILL.md files.
+> The server gates progress — you call the tool in a loop and it returns one stage at a time.
+
+### Starting a workflow
+
+```
+call_mcp_tool(
+  ServerName: "gsd-guardian",
+  ToolName: "gsd_workflow",
+  Arguments: { workflow: "discuss-phase", args: '{"phase": "3"}' }
+)
+```
+
+Returns `session_id` + first stage instructions.
+
+### Continuing a workflow
+
+```
+call_mcp_tool(
+  ServerName: "gsd-guardian",
+  ToolName: "gsd_workflow",
+  Arguments: { session_id: "<id>", stage_outputs: '{"phase_found": true, ...}' }
+)
+```
+
+Returns next stage or `nextStageNeeded: false` when complete.
+
+### Checking status (resume after context loss)
+
+```
+call_mcp_tool(
+  ServerName: "gsd-guardian",
+  ToolName: "gsd_workflow",
+  Arguments: { session_id: "<id>" }
+)
+```
+
+### Available workflows
+
+| Workflow | Gates | Description |
+|---|---|---|
+| `discuss-phase` | 6 | Gather context through adaptive questioning |
+| `plan-phase` | 10 | Create detailed phase plan with verification |
+| `execute-phase` | 10 | Wave-based parallel execution with subagents |
+| `execute-plan` | 8 | Single plan execution (consumed by executor subagents) |
+| `verify-work` | 6 | Conversational UAT and gap closure |
+| `ship` | 5 | Push, PR creation, optional review |
+| `complete-milestone` | 7 | Archive, retrospective, cleanup |
+| `autonomous` | 4 | Meta-workflow chaining discuss→plan→execute per phase |
+
+### Stage definition format
+
+Stage files live in `get-shit-done/workflows/stages/<workflow>.stages.json`.
+Each stage has:
+- `index` — sequential position
+- `name` — machine-readable identifier
+- `instructions` — prose instructions for the agent
+- `required_outputs` — typed outputs the agent must produce
+- `hints` — suggested MCP tools, files to read, agents to spawn
+- `fatal_on_fail` — if true, stops the workflow on failure
+- `skip_when` — conditional skip based on accumulated outputs
+- `repeat_until` — loop condition for wave-based execution
+
 ## Enforcement Checkpoints
 
 After critical operations, the workflow MUST verify compliance:

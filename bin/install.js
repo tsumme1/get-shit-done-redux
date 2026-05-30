@@ -2219,6 +2219,16 @@ When the workflow needs to spawn a subagent:
   \`\`\`
 - If the workflow specifies \`isolation="worktree"\`, map it to \`Workspace="share"\` (isolated git worktree branch). Otherwise, use \`Workspace="inherit"\` (same workspace).
 - Never do execution or planning inline when a subagent is dispatched in the background — wait for the subagent to finish and report back!
+
+## E. Runtime Enforcement (MANDATORY)
+Before executing ANY workflow step, you MUST read the Antigravity runtime reference:
+  \`view_file\` on \`get-shit-done/references/antigravity-runtime.md\`
+This document contains HARD ENFORCEMENT rules:
+- Use \`call_mcp_tool(ServerName: "gsd-guardian", ...)\` for ALL gsd-tools.cjs operations
+- Use \`define_subagent\` + \`invoke_subagent\` when workflows specify \`Agent()\` — NEVER inline
+- For multi-step workflows (discuss/plan/execute/verify/ship), use \`gsd_workflow\` MCP tool in a loop — call once to start, then keep calling with session_id + stage_outputs until nextStageNeeded is false
+- All enforcement checkpoint scripts MUST be run after critical operations
+- Passing \`--force\` in \$ARGUMENTS bypasses enforcement gates (logged for audit)
 </antigravity_skill_adapter>`;
 }
 
