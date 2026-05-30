@@ -2233,6 +2233,27 @@ This document contains HARD ENFORCEMENT rules:
 }
 
 /**
+ * Slim adapter header for MCP-workflow skills (those whose <process> uses gsd_workflow).
+ * The full adapter is redundant for these skills because the gsd_workflow server
+ * returns stage-specific instructions, tool hints, and spawning directives.
+ * This version keeps only the argument-parsing contract and the critical MCP rule.
+ */
+function getAntigravityMcpSkillAdapterHeader(skillName) {
+  return `<antigravity_skill_adapter>
+## Skill Binding
+- Invoked when user mentions \`${skillName}\` or describes a matching task.
+- All user text after the skill mention is \`$ARGUMENTS\`.
+- If no arguments are present, treat \`$ARGUMENTS\` as empty.
+
+## MCP Workflow Execution
+- Call \`call_mcp_tool(ServerName: "gsd-guardian", ToolName: "gsd_workflow", ...)\` per the \`<process>\` section.
+- Each stage returns \`instructions\`, \`hints\` (tools), and \`required_outputs\`. Follow them exactly.
+- Use \`ask_question\` when stages require user input. Use \`invoke_subagent\` when stages specify agent spawning.
+- Do NOT use \`run_command\` with \`gsd-tools.cjs\` directly — always use MCP.
+</antigravity_skill_adapter>`;
+}
+
+/**
  * Convert a Claude command (.md) to an Antigravity skill (SKILL.md).
  * Prepend the Antigravity Skill Adapter header to the skill body,
  * matching the Cursor/Windsurf converter layout.
@@ -2253,7 +2274,11 @@ function convertClaudeCommandToAntigravitySkill(content, skillName, isGlobal = f
   }
   description = toSingleLine(description);
   const shortDescription = description.length > 180 ? `${description.slice(0, 177)}...` : description;
-  const adapter = getAntigravitySkillAdapterHeader(skillName);
+  // Detect MCP-workflow skills: body contains gsd_workflow in a <process> block
+  const isMcpWorkflow = body.includes('gsd_workflow');
+  const adapter = isMcpWorkflow
+    ? getAntigravityMcpSkillAdapterHeader(skillName)
+    : getAntigravitySkillAdapterHeader(skillName);
 
   return `---\nname: ${yamlIdentifier(skillName)}\ndescription: ${yamlQuote(shortDescription)}\n---\n\n${adapter}\n\n${body.trimStart()}`;
 }

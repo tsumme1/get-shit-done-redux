@@ -10,7 +10,7 @@ These are 1:1 translations. Use the EXACT Antigravity tool name — never the Cl
 | Claude Code | Antigravity 2.0 | Notes |
 |---|---|---|
 | `Agent(subagent_type="gsd-X", prompt=..., model=...)` | `define_subagent` + `invoke_subagent` | See §Agent Spawning below |
-| `Agent(..., isolation="worktree")` | `invoke_subagent(..., Workspace: "branch")` | Creates isolated workspace |
+| `Agent(..., isolation="worktree")` | `invoke_subagent(..., Workspace: "share")` | Creates shared workspace (git worktree equivalent) |
 | `Agent(..., run_in_background: true)` | Multiple entries in `invoke_subagent` `Subagents` array | Parallel launch |
 | `AskUserQuestion(question, options)` | `ask_question` | See §User Interaction below |
 | `Read tool` / `cat file` | `view_file` | Must use `AbsolutePath` |
@@ -50,7 +50,7 @@ invoke_subagent(
     TypeName: "gsd-executor",
     Role: "Phase 1 Plan 01 Executor",
     Prompt: "<constructed from workflow>",
-    Workspace: "branch"    // ← equivalent to isolation="worktree"
+    Workspace: "share"     // ← equivalent to isolation="worktree" (shared repo dir)
   }]
 )
 ```
@@ -63,10 +63,10 @@ include multiple entries in the `Subagents` array:
 ```
 invoke_subagent(
   Subagents: [
-    { TypeName: "gsd-project-researcher", Role: "Stack Researcher", Prompt: "...", Workspace: "branch" },
-    { TypeName: "gsd-project-researcher", Role: "Features Researcher", Prompt: "...", Workspace: "branch" },
-    { TypeName: "gsd-project-researcher", Role: "Architecture Researcher", Prompt: "...", Workspace: "branch" },
-    { TypeName: "gsd-project-researcher", Role: "Pitfalls Researcher", Prompt: "...", Workspace: "branch" }
+    { TypeName: "gsd-project-researcher", Role: "Stack Researcher", Prompt: "...", Workspace: "share" },
+    { TypeName: "gsd-project-researcher", Role: "Features Researcher", Prompt: "...", Workspace: "share" },
+    { TypeName: "gsd-project-researcher", Role: "Architecture Researcher", Prompt: "...", Workspace: "share" },
+    { TypeName: "gsd-project-researcher", Role: "Pitfalls Researcher", Prompt: "...", Workspace: "share" }
   ]
 )
 ```

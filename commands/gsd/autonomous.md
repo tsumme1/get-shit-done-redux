@@ -32,7 +32,7 @@ Optional flags:
 - `--only N` — execute only phase N (single-phase mode).
 - `--interactive` — run discuss inline with questions (not auto-answered), then dispatch plan→execute as background agents. Keeps the main context lean while preserving user input on decisions.
 
-Project context, phase list, and state are resolved inside the workflow using init commands (`gsd-tools query init.milestone-op`, `gsd-tools query roadmap.analyze`). No upfront context loading needed.
+Project context, phase list, and state are resolved inside the workflow using MCP tools (`state_load`, `phases_list`). No upfront context loading needed.
 </context>
 
 <process>
@@ -51,4 +51,8 @@ The server returns stages one at a time. For each stage:
 Repeat until the server returns `nextStageNeeded: false`.
 
 **CRITICAL:** You MUST keep calling gsd_workflow until completion. Do not stop mid-workflow. Each stage depends on the previous stage's outputs. If a stage fails, report the error in stage_outputs and let the server decide the next action.
+
+The `execute_phase` stage nests sub-workflows (discuss→plan→execute). For each sub-step, either call `gsd_workflow` recursively with the corresponding workflow name, or spawn subagents with the corresponding GSD skills.
+
+**TIP for users:** For best results, run this command with `/goal` — it ensures the agent runs autonomously to completion without intermediate pauses.
 </process>
