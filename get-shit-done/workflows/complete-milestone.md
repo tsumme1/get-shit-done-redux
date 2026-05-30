@@ -583,6 +583,24 @@ gsd_run query commit "docs: update retrospective for v${VERSION}" --files .plann
 
 </step>
 
+<step name="extract_learnings_gate">
+**Auto-extract lessons learned from all phases in this milestone (when enabled).**
+
+**Config gate:**
+```bash
+LEARNINGS_ENABLED=$(gsd_run query config-get workflow.extract_learnings 2>/dev/null || echo "true")
+```
+
+If `LEARNINGS_ENABLED` is `"false"`: display "Learnings extraction skipped (workflow.extract_learnings=false)" and proceed.
+
+**Invoke:**
+```
+Skill(skill="gsd-extract-learnings", args="${VERSION}")
+```
+
+**Error handling:** If the Skill invocation fails or throws, catch the error, display "Learnings extraction encountered an error (non-blocking): {error}" and proceed. Learnings extraction failures must never block milestone completion.
+</step>
+
 <step name="update_state">
 
 Most STATE.md updates were handled by `milestone complete`, but verify and update remaining fields:
@@ -815,6 +833,24 @@ Tag: v[X.Y]
 
 </step>
 
+<step name="cleanup_gate">
+**Auto-archive phase directories from the completed milestone (when enabled).**
+
+**Config gate:**
+```bash
+CLEANUP_ENABLED=$(gsd_run query config-get workflow.auto_cleanup 2>/dev/null || echo "true")
+```
+
+If `CLEANUP_ENABLED` is `"false"`: display "Phase cleanup skipped (workflow.auto_cleanup=false)" and proceed.
+
+**Invoke:**
+```
+Skill(skill="gsd-cleanup")
+```
+
+**Error handling:** If the Skill invocation fails or throws, catch the error, display "Phase cleanup encountered an error (non-blocking): {error}" and proceed. Cleanup failures must never block milestone completion.
+</step>
+
 </process>
 
 <milestone_naming>
@@ -864,6 +900,8 @@ Milestone completion is successful when:
 - [ ] Known gaps recorded in MILESTONES.md if user proceeded with incomplete requirements
 - [ ] RETROSPECTIVE.md updated with milestone section
 - [ ] Cross-milestone trends updated
+- [ ] Learnings extracted from milestone phases (gsd-extract-learnings, unless workflow.extract_learnings=false)
+- [ ] Phase directories archived (gsd-cleanup, unless workflow.auto_cleanup=false)
 - [ ] User knows next step (/gsd:new-milestone)
 
 </success_criteria>

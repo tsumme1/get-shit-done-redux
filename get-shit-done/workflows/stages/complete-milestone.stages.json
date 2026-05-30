@@ -1,6 +1,6 @@
 {
   "workflow": "complete-milestone",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Complete and archive a milestone — audit, stats, evolve PROJECT.md, archive, handle branches, and finalize.",
   "stages": [
     {
@@ -96,6 +96,21 @@
       },
       "hints": {
         "mcp_tools": ["state_update", "commit"]
+      }
+    },
+    {
+      "index": 7,
+      "name": "post_completion",
+      "instructions": "Run post-milestone housekeeping. Each task is config-controlled and non-blocking.\n\n**1. Extract learnings:** Check config 'workflow.extract_learnings' (default: true). If enabled, invoke Skill(skill=\"gsd-extract-learnings\", args=\"${milestone_version}\") to extract lessons learned from all phases in this milestone. If the skill invocation fails, display \"Learnings extraction encountered an error (non-blocking): {error}\" and continue. Report learnings_extracted.\n\n**2. Cleanup phase directories:** Check config 'workflow.auto_cleanup' (default: true). If enabled, invoke Skill(skill=\"gsd-cleanup\") to archive phase directories from the completed milestone. If the skill invocation fails, display \"Phase cleanup encountered an error (non-blocking): {error}\" and continue. Report cleanup_done.\n\nAll tasks are non-blocking — failures display a warning and never prevent milestone completion.",
+      "required_outputs": {
+        "learnings_extracted": {
+          "type": "boolean",
+          "config_gate": "workflow.extract_learnings"
+        },
+        "cleanup_done": {
+          "type": "boolean",
+          "config_gate": "workflow.auto_cleanup"
+        }
       }
     }
   ]

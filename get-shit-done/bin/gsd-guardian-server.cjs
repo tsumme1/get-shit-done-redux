@@ -261,8 +261,20 @@ class WorkflowEngine {
     const required = stage.required_outputs || {};
     const missing = [];
     const typeErrors = [];
+    const gatedSkips = [];
 
     for (const [key, spec] of Object.entries(required)) {
+      // Config gate: if the output has a config_gate, check whether the gate
+      // is disabled in the project config. When disabled, the output becomes
+      // optional — the agent can omit it without failing validation.
+      if (spec.config_gate) {
+        const gateValue = this._readConfigGate(spec.config_gate, spec.config_gate_default);
+        if (gateValue === 'false' || gateValue === false) {
+          gatedSkips.push(key);
+          continue; // skip validation for this output
+        }
+      }
+
       if (outputs[key] === undefined || outputs[key] === null) {
         missing.push(key);
         continue;
@@ -287,12 +299,47 @@ class WorkflowEngine {
       valid: missing.length === 0 && typeErrors.length === 0,
       missing,
       typeErrors,
+      gatedSkips,
       hint: missing.length > 0
         ? `Missing required outputs: ${missing.join(', ')}. Re-read the stage instructions.`
         : typeErrors.length > 0
           ? `Type errors: ${typeErrors.join('; ')}`
           : null,
     };
+  }
+
+  /**
+   * Read a config gate value from .planning/config.json.
+   * Resolves dot-notation keys (e.g., "workflow.security_enforcement").
+   * Returns the string value or the provided default if the key is not found.
+   * Lightweight sync read — no subprocess spawn, no module dependency on core.cjs.
+   *
+   * @param {string} key - dot-notation config key
+   * @param {string} [defaultValue='true'] - default when key is missing
+   * @returns {string|boolean} the config value
+   */
+  _readConfigGate(key, defaultValue = 'true') {
+    try {
+      const configPath = path.join(this.projectRoot, '.planning', 'config.json');
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      const config = JSON.parse(raw);
+
+      // Resolve dot-notation: "workflow.security_enforcement" → config.workflow.security_enforcement
+      const parts = key.split('.');
+      let current = config;
+      for (const part of parts) {
+        if (current === null || current === undefined || typeof current !== 'object') {
+          return defaultValue;
+        }
+        current = current[part];
+      }
+
+      if (current === undefined || current === null) return defaultValue;
+      return String(current);
+    } catch {
+      // Config missing or unparseable — return default (gate enabled)
+      return defaultValue;
+    }
   }
 
   _nextStage(session, stages, outputs) {

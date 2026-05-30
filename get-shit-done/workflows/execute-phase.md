@@ -1023,26 +1023,7 @@ After all waves:
 [Aggregate from SUMMARYs, or "None"]
 ```
 
-**Security gate check:**
-```bash
-SECURITY_CFG=$(gsd_run query config-get workflow.security_enforcement --raw 2>/dev/null || echo "true")
-SECURITY_FILE=$(ls "${PHASE_DIR}"/*-SECURITY.md 2>/dev/null | head -1)
-```
-
-If `SECURITY_CFG` is `false`: skip.
-
-If `SECURITY_CFG` is `true` AND `SECURITY_FILE` is empty (no SECURITY.md yet):
-Include in the next-steps routing output:
-```
-⚠ Security enforcement enabled — run before advancing:
-  /gsd:secure-phase {PHASE} ${GSD_WS}
-```
-
-If `SECURITY_CFG` is `true` AND SECURITY.md exists: check frontmatter `threats_open`. If > 0:
-```
-⚠ Security gate: {threats_open} threats open
-  /gsd:secure-phase {PHASE} — resolve before advancing
-```
+**Security review:** Handled by the `secure_phase_gate` step (runs after code review).
 </step>
 
 <step name="tdd_review_checkpoint">
@@ -1158,6 +1139,41 @@ Code review found issues. Consider running:
 ```
 
 **Error handling:** If the Skill invocation fails or throws, catch the error, display "Code review encountered an error (non-blocking): {error}" and proceed to next step. Review failures must never block execution.
+
+Regardless of review result, ALWAYS proceed to secure_phase_gate → close_parent_artifacts → regression_gate → verify_phase_goal.
+</step>
+
+<step name="secure_phase_gate">
+**Auto-invoke security review when enforcement is enabled.** Advisory only — never blocks execution flow.
+
+**Config gate:**
+```bash
+SECURITY_CFG=$(gsd_run query config-get workflow.security_enforcement --raw 2>/dev/null || echo "true")
+```
+
+If `SECURITY_CFG` is `"false"`: display "Security review skipped (workflow.security_enforcement=false)" and proceed to next step.
+
+**Check if already done:**
+```bash
+PADDED=$(printf "%02d" "${PHASE_NUMBER}")
+SECURITY_FILE="${PHASE_DIR}/${PADDED}-SECURITY.md"
+```
+
+If `SECURITY_FILE` exists: check frontmatter `threats_open`. If `threats_open` is 0 or missing, display "Security review already passed" and proceed.
+
+**Invoke review:**
+```
+Skill(skill="gsd-secure-phase", args="${PHASE_NUMBER}")
+```
+
+**Check results:**
+If SECURITY.md now exists and `threats_open` > 0, display:
+```
+Security review found {threats_open} open threats. Consider resolving before advancing:
+/gsd:secure-phase ${PHASE_NUMBER} — review and resolve threats
+```
+
+**Error handling:** If the Skill invocation fails or throws, catch the error, display "Security review encountered an error (non-blocking): {error}" and proceed to next step. Security review failures must never block execution.
 
 Regardless of review result, ALWAYS proceed to close_parent_artifacts → regression_gate → verify_phase_goal.
 </step>
@@ -1548,6 +1564,52 @@ GL_ENABLED=$(gsd_run query config-get features.global_learnings --raw 2>/dev/nul
 gsd_run query learnings.copy 2>/dev/null || echo "⚠ Learnings copy failed — continuing"
 ```
 Copy failure must NOT block phase completion.
+</step>
+
+<step name="extract_learnings_gate">
+**Auto-extract lessons learned from completed phase (when enabled).**
+
+**Config gate:**
+```bash
+LEARNINGS_ENABLED=$(gsd_run query config-get workflow.extract_learnings 2>/dev/null || echo "true")
+```
+
+If `LEARNINGS_ENABLED` is `"false"`: display "Learnings extraction skipped (workflow.extract_learnings=false)" and proceed.
+
+**Invoke:**
+```
+Skill(skill="gsd-extract-learnings", args="${PHASE_NUMBER}")
+```
+
+**Error handling:** If the Skill invocation fails or throws, catch the error, display "Learnings extraction encountered an error (non-blocking): {error}" and proceed. Learnings extraction failures must never block phase completion.
+</step>
+
+<step name="graphify_rebuild_gate">
+**Rebuild the knowledge graph after phase completion (opt-in).**
+
+The knowledge graph powers `gsd-phase-researcher` and `gsd-planner` context lookups.
+Rebuilding after each phase keeps it current for the next planning cycle.
+
+**Config gate (opt-in — disabled by default):**
+```bash
+GRAPHIFY_ENABLED=$(gsd_run query config-get graphify.auto_rebuild 2>/dev/null || echo "false")
+```
+
+If `GRAPHIFY_ENABLED` is not `"true"`: skip this step silently. Graphify requires the external `graphifyy` Python package and is not installed by default.
+
+**Check if graphify is available:**
+```bash
+GRAPHIFY_INSTALLED=$(gsd_run query config-get graphify.enabled 2>/dev/null || echo "false")
+```
+
+If `GRAPHIFY_INSTALLED` is not `"true"`: skip — graphify is not enabled in this project.
+
+**Invoke rebuild:**
+```
+Skill(skill="gsd-graphify", args="build")
+```
+
+**Error handling:** If the Skill invocation fails or throws (e.g., `graphifyy` not on PATH, timeout), catch the error, display "Knowledge graph rebuild encountered an error (non-blocking): {error}" and proceed. Graphify failures must never block phase completion.
 </step>
 
 <step name="close_phase_todos">

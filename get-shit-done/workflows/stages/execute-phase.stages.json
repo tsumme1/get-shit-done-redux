@@ -1,6 +1,6 @@
 {
   "workflow": "execute-phase",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Execute all plans in a phase using wave-based parallel execution. Orchestrator coordinates, subagents execute.",
   "stages": [
     {
@@ -92,7 +92,7 @@
     {
       "index": 6,
       "name": "aggregate_results",
-      "instructions": "Aggregate results from all waves into a phase completion summary.\n\n1. Compile a summary table of all plans executed:\n   - Plan ID, status, summary, commits\n2. Count successes, failures, and skipped plans.\n3. Check if all plans in the phase completed successfully.\n4. If security enforcement is enabled, check for SECURITY.md.\n\nReport the completion summary.",
+      "instructions": "Aggregate results from all waves into a phase completion summary.\n\n1. Compile a summary table of all plans executed:\n   - Plan ID, status, summary, commits\n2. Count successes, failures, and skipped plans.\n3. Check if all plans in the phase completed successfully.\n\nReport the completion summary.",
       "required_outputs": {
         "total_plans": { "type": "number" },
         "succeeded": { "type": "number" },
@@ -103,10 +103,18 @@
     {
       "index": 7,
       "name": "quality_gates",
-      "instructions": "Run post-execution quality gates.\n\n1. Regression gate: If prior phases have test files listed in VERIFICATION.md, run them.\n2. Schema drift gate: Check for schema changes that weren't applied.\n3. Codebase drift gate: Check for unexpected changes to core patterns.\n\nThese gates are advisory — report findings but don't block the workflow.\nIf critical issues are found, note them in the report.",
+      "instructions": "Run post-execution quality gates. Each gate is config-controlled and non-blocking.\n\n**1. Regression gate:** If prior phases have test files listed in VERIFICATION.md, run them. Report regression_ok.\n\n**2. Schema drift gate:** Check for schema changes that weren't applied. Report schema_drift_ok.\n\n**3. Security review gate:** Check config 'workflow.security_enforcement' (default: true). If enabled, invoke Skill(skill=\"gsd-secure-phase\", args=\"${PHASE_NUMBER}\"). Check if SECURITY.md exists and has threats_open > 0 — if so, display a warning with the count but do NOT block. If the skill invocation fails, display a non-blocking error. Report security_review_done as true (reviewed) or false (skipped/failed). If config gate is disabled, skip and report security_review_done as false.\n\n**4. Code review gate:** Check config 'workflow.code_review' (default: true). If enabled, invoke Skill(skill=\"gsd-code-review\", args=\"${PHASE_NUMBER}\"). Check REVIEW.md for status — if not 'clean', display a warning. If the skill invocation fails, display a non-blocking error. Report code_review_done as true or false. If config gate is disabled, skip.\n\nAll gates are advisory — report findings but never block the workflow. If critical issues are found, note them in quality_notes.",
       "required_outputs": {
         "regression_ok": { "type": "boolean" },
         "schema_drift_ok": { "type": "boolean" },
+        "security_review_done": {
+          "type": "boolean",
+          "config_gate": "workflow.security_enforcement"
+        },
+        "code_review_done": {
+          "type": "boolean",
+          "config_gate": "workflow.code_review"
+        },
         "quality_notes": { "type": "string" }
       }
     },
@@ -133,6 +141,22 @@
       },
       "hints": {
         "mcp_tools": ["commit", "state_update", "roadmap_update_plan_progress"]
+      }
+    },
+    {
+      "index": 10,
+      "name": "post_completion",
+      "instructions": "Run post-completion housekeeping. Each task is config-controlled and non-blocking.\n\n**1. Extract learnings:** Check config 'workflow.extract_learnings' (default: true). If enabled, invoke Skill(skill=\"gsd-extract-learnings\", args=\"${PHASE_NUMBER}\"). If the skill invocation fails, display \"Learnings extraction encountered an error (non-blocking): {error}\" and continue. Report learnings_extracted.\n\n**2. Rebuild knowledge graph:** Check config 'graphify.auto_rebuild' (default: false — opt-in). If enabled, also check 'graphify.enabled'. If both are true, invoke Skill(skill=\"gsd-graphify\", args=\"build\"). If the skill invocation fails or graphify is not installed, display a non-blocking error and continue. Report graphify_rebuilt.\n\nAll tasks are non-blocking — failures display a warning and never prevent phase completion.",
+      "required_outputs": {
+        "learnings_extracted": {
+          "type": "boolean",
+          "config_gate": "workflow.extract_learnings"
+        },
+        "graphify_rebuilt": {
+          "type": "boolean",
+          "config_gate": "graphify.auto_rebuild",
+          "config_gate_default": "false"
+        }
       }
     }
   ]

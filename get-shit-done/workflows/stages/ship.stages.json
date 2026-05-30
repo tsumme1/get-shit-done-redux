@@ -1,6 +1,6 @@
 {
   "workflow": "ship",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Ship a phase — push branch, create PR, optional review, and finalize state.",
   "stages": [
     {
@@ -52,10 +52,14 @@
     {
       "index": 3,
       "name": "optional_review",
-      "instructions": "Handle optional code review.\n\n1. Call 'config_get' with key 'workflow.code_review_command' to check for an external review tool.\n2. If an external review command is configured:\n   - Run the command via run_command.\n   - Parse the output for a verdict: 'APPROVED' or 'REVISE'.\n   - Report review_status as 'external' and review_decision as the parsed verdict.\n3. If no external review is configured, present the user with options via ask_question:\n   - Option A: 'Skip review — merge when ready'\n   - Option B: 'Self-review — I will review the diff now'\n   - Option C: 'Request reviewer — add a GitHub reviewer'\n4. If the user chooses option C, prompt for reviewer username and run:\n   'gh pr edit ${pr_number} --add-reviewer <username>'\n   Report review_status as 'reviewer_requested' and review_decision as 'pending'.\n5. If the user chooses option A, report review_status as 'skipped' and review_decision as 'none'.\n6. If the user chooses option B, report review_status as 'self' and review_decision as 'pending'.\n\nReport review_status and review_decision.",
+      "instructions": "Handle code review — external command, GSD built-in, or manual.\n\n**1. External review command:** Call 'config_get' with key 'workflow.code_review_command'. If configured, run the command via run_command. Parse the output for a verdict: 'APPROVED' or 'REVISE'. Report review_source as 'external'.\n\n**2. GSD code review fallback:** If no external command is configured, check config 'workflow.code_review' (default: true). If enabled, invoke Skill(skill=\"gsd-code-review\", args=\"${PHASE_NUMBER}\"). Check the resulting REVIEW.md for status. If status is not 'clean', display a warning. Report review_source as 'gsd'. If the skill invocation fails, display a non-blocking error and fall through to manual options.\n\n**3. Manual review options:** If both external and GSD review are skipped/unavailable, present the user with options via ask_question:\n   - 'Skip review — merge when ready'\n   - 'Self-review — I will review the diff now'\n   - 'Request reviewer — add a GitHub reviewer'\nHandle each option and report review_source as 'manual'.\n\nReport review_status, review_decision, and code_review_done.",
       "required_outputs": {
         "review_status": { "type": "string" },
-        "review_decision": { "type": "string" }
+        "review_decision": { "type": "string" },
+        "code_review_done": {
+          "type": "boolean",
+          "config_gate": "workflow.code_review"
+        }
       },
       "hints": {
         "mcp_tools": ["config_get"]

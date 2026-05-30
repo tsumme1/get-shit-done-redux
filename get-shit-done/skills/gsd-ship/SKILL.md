@@ -187,6 +187,27 @@ call_mcp_tool(
 If review command configured: generate diff, build review prompt, pipe to command,
 parse JSON result, report verdict.
 
+**GSD code review fallback (when no external review command configured):**
+
+If external review command is NOT configured, check whether GSD's built-in
+code review should run:
+```
+call_mcp_tool(
+  ServerName: "gsd-guardian",
+  ToolName: "config_get",
+  Arguments: { key: "workflow.code_review" }
+)
+```
+
+If result is not `"false"`:
+```
+Skill(skill="gsd-code-review", args="${PHASE_NUMBER}")
+```
+
+Check review results at `${PHASE_DIR}/${PADDED}-REVIEW.md`. If status is not
+"clean": display issues found and suggest `--fix`. Non-blocking — errors fall
+through to manual review.
+
 **Manual review options:**
 ```
 ask_question(

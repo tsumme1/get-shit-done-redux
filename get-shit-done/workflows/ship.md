@@ -284,6 +284,34 @@ If `REVIEW_CMD` is non-empty and not `"null"`, run the external review:
 
    Regardless of the external review result, fall through to the manual review options below.
 
+**GSD code review fallback (when no external review command configured):**
+
+If `REVIEW_CMD` is empty (no external review command configured), check whether GSD's built-in code review should run:
+
+```bash
+CODE_REVIEW_ENABLED=$(gsd_run query config-get workflow.code_review 2>/dev/null || echo "true")
+```
+
+If `CODE_REVIEW_ENABLED` is not `"false"`:
+```
+Skill(skill="gsd-code-review", args="${PHASE_NUMBER}")
+```
+
+Check review results:
+```bash
+PADDED=$(printf "%02d" "${PHASE_NUMBER}")
+REVIEW_FILE="${PHASE_DIR}/${PADDED}-REVIEW.md"
+REVIEW_STATUS=$(sed -n '/^---$/,/^---$/p' "$REVIEW_FILE" | grep "^status:" | head -1 | cut -d: -f2 | tr -d ' ')
+```
+
+If REVIEW_STATUS is not "clean" and not "skipped" and not empty, display:
+```
+Code review found issues. Consider running:
+/gsd:code-review ${PHASE_NUMBER} --fix
+```
+
+**Error handling:** If the Skill invocation fails or throws, catch the error, display "Code review encountered an error (non-blocking): {error}" and fall through to manual review options. Code review failures must never block shipping.
+
 ---
 
 **Manual review options:**
