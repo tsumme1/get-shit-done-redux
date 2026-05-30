@@ -7472,6 +7472,25 @@ function uninstall(isGlobal, runtime = 'claude') {
     console.log(`  ${green}✓${reset} Removed ${MANIFEST_NAME}`);
   }
 
+  // Antigravity: remove gsd-guardian MCP server from mcp_config.json
+  if (isAntigravity) {
+    try {
+      const antigravityGlobalDir = resolveAntigravityGlobalDir();
+      const mcpConfigPath = path.join(antigravityGlobalDir, 'mcp_config.json');
+      if (fs.existsSync(mcpConfigPath)) {
+        const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf-8'));
+        if (mcpConfig.mcpServers && mcpConfig.mcpServers['gsd-guardian']) {
+          delete mcpConfig.mcpServers['gsd-guardian'];
+          fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + '\n');
+          removedCount++;
+          console.log(`  ${green}✓${reset} Removed gsd-guardian MCP server`);
+        }
+      }
+    } catch (_mcpErr) {
+      // Non-fatal — MCP config may not exist or be readable
+    }
+  }
+
   if (removedCount === 0) {
     console.log(`  ${yellow}⚠${reset} No GSD files found to remove.`);
   }
@@ -9179,6 +9198,62 @@ function install(isGlobal, runtime = 'claude', options = {}) {
   // Cache lives at ~/.cache/gsd/ (see hooks/gsd-check-update.js line 35-36)
   const updateCacheFile = path.join(os.homedir(), '.cache', 'gsd', 'gsd-update-check.json');
   try { fs.unlinkSync(updateCacheFile); } catch (e) { /* cache may not exist yet */ }
+
+  // Antigravity: register gsd-guardian MCP server in mcp_config.json
+  // The guardian server provides the gsd_workflow tool and all gsd-tools
+  // query bindings. The MCP config must point at the installed binary
+  // (not the repo source) and set GSD_PROJECT_ROOT for local installs.
+  if (isAntigravity) {
+    try {
+      // Resolve the Antigravity MCP config directory.
+      // For global installs, MCP config lives at <antigravityGlobalDir>/mcp_config.json.
+      // For local installs, the MCP config is still global (Antigravity loads MCP
+      // servers from the global config, not per-project) — so we write to the global
+      // dir but point GSD_PROJECT_ROOT at the project.
+      const antigravityGlobalDir = resolveAntigravityGlobalDir();
+      const mcpConfigPath = path.join(antigravityGlobalDir, 'mcp_config.json');
+      const guardianServerPath = path.join(
+        targetDir, 'get-shit-done', 'bin', 'gsd-guardian-server.cjs'
+      );
+
+      // Read existing config or create skeleton
+      let mcpConfig = { mcpServers: {} };
+      if (fs.existsSync(mcpConfigPath)) {
+        try {
+          mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf-8'));
+          if (!mcpConfig.mcpServers) mcpConfig.mcpServers = {};
+        } catch (_parseErr) {
+          // Corrupted config — back up and create fresh
+          const backupPath = mcpConfigPath + '.bak';
+          fs.copyFileSync(mcpConfigPath, backupPath);
+          console.warn(`  ${yellow}⚠${reset}  Backed up corrupted mcp_config.json to ${backupPath}`);
+          mcpConfig = { mcpServers: {} };
+        }
+      }
+
+      // Build the gsd-guardian server entry
+      const guardianEntry = {
+        command: 'node',
+        args: [guardianServerPath],
+        env: {
+          GSD_PROJECT_ROOT: isGlobal ? '' : process.cwd(),
+          PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+        },
+      };
+
+      // Upsert — only replace gsd-guardian, preserve all other servers
+      mcpConfig.mcpServers['gsd-guardian'] = guardianEntry;
+
+      fs.mkdirSync(path.dirname(mcpConfigPath), { recursive: true });
+      fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + '\n');
+      console.log(`  ${green}✓${reset} Registered gsd-guardian MCP server`);
+    } catch (mcpErr) {
+      // MCP registration is non-fatal — the install is still functional
+      // without it, the user just won't have the gsd_workflow tool available
+      // until they manually add it.
+      console.warn(`  ${yellow}⚠${reset}  Could not register gsd-guardian MCP server: ${mcpErr.message}`);
+    }
+  }
 
   if (failures.length > 0) {
     console.error(`\n  ${yellow}Installation incomplete!${reset} Failed: ${failures.join(', ')}`);
