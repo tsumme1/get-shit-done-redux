@@ -31,15 +31,6 @@ Flag handling rule:
 Context budget: ~15% orchestrator, 100% fresh per subagent.
 </objective>
 
-<execution_context>
-@~/.claude/get-shit-done/workflows/execute-phase.md
-@~/.claude/get-shit-done/references/ui-brand.md
-</execution_context>
-
-<runtime_note>
-**Copilot (VS Code):** Use `vscode_askquestions` wherever this workflow calls `AskUserQuestion`. They are equivalent — `vscode_askquestions` is the VS Code Copilot implementation of the same interactive question API.
-</runtime_note>
-
 <context>
 Phase: $ARGUMENTS
 
@@ -54,11 +45,22 @@ Phase: $ARGUMENTS
 - `--interactive` is active only if the literal `--interactive` token is present in `$ARGUMENTS`
 - If none of these tokens appear, run the standard full-phase execution flow with no flag-specific filtering
 - Do not infer that a flag is active just because it is documented in this prompt
-
-Context files are resolved inside the workflow via `gsd-tools query init.execute-phase` and per-subagent `<files_to_read>` blocks.
 </context>
 
 <process>
-Execute end-to-end.
-Preserve all workflow gates (wave execution, checkpoint handling, verification, state updates, routing).
+Extract the phase number from $ARGUMENTS. Then call the gsd-guardian MCP tool `gsd_workflow` with:
+- workflow: "execute-phase"
+- args: '{"phase": "<phase_number>"}'
+
+The server returns stages one at a time. For each stage:
+1. Read the stage `instructions` and execute them using the tools listed in `hints`
+2. When instructions say "Call the gsd-guardian MCP tool 'X'", use `call_mcp_tool(ServerName: "gsd-guardian", ToolName: "X", ...)`
+3. When instructions reference agent tools (view_file, run_command, write_to_file, invoke_subagent), use those directly
+4. When instructions say to ask the user, use ask_question
+5. Collect all `required_outputs` specified in the stage
+6. Call `gsd_workflow` again with the `session_id` and your `stage_outputs` as a JSON string
+
+Repeat until the server returns `nextStageNeeded: false`.
+
+**CRITICAL:** You MUST keep calling gsd_workflow until completion. Do not stop mid-workflow. Each stage depends on the previous stage's outputs. If a stage fails, report the error in stage_outputs and let the server decide the next action.
 </process>

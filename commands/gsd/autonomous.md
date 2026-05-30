@@ -25,11 +25,6 @@ Uses ROADMAP.md phase discovery and Skill() flat invocations for each phase comm
 **After:** Milestone is complete and cleaned up.
 </objective>
 
-<execution_context>
-@~/.claude/get-shit-done/workflows/autonomous.md
-@~/.claude/get-shit-done/references/ui-brand.md
-</execution_context>
-
 <context>
 Optional flags:
 - `--from N` — start from phase N instead of the first incomplete phase.
@@ -41,6 +36,19 @@ Project context, phase list, and state are resolved inside the workflow using in
 </context>
 
 <process>
-Execute end-to-end.
-Preserve all workflow gates (phase discovery, per-phase execution, blocker handling, progress display).
+Extract optional flags (--from, --to, --only) from $ARGUMENTS. Then call the gsd-guardian MCP tool `gsd_workflow` with:
+- workflow: "autonomous"
+- args: '{"from": "<from_value>", "to": "<to_value>", "only": "<only_value>"}'
+
+The server returns stages one at a time. For each stage:
+1. Read the stage `instructions` and execute them using the tools listed in `hints`
+2. When instructions say "Call the gsd-guardian MCP tool 'X'", use `call_mcp_tool(ServerName: "gsd-guardian", ToolName: "X", ...)`
+3. When instructions reference agent tools (view_file, run_command, write_to_file, invoke_subagent), use those directly
+4. When instructions say to ask the user, use ask_question
+5. Collect all `required_outputs` specified in the stage
+6. Call `gsd_workflow` again with the `session_id` and your `stage_outputs` as a JSON string
+
+Repeat until the server returns `nextStageNeeded: false`.
+
+**CRITICAL:** You MUST keep calling gsd_workflow until completion. Do not stop mid-workflow. Each stage depends on the previous stage's outputs. If a stage fails, report the error in stage_outputs and let the server decide the next action.
 </process>

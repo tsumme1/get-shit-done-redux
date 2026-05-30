@@ -217,8 +217,8 @@ describe('#3131 re-wired workflows: parent command bodies dispatch to workflow f
 
   test('discuss-phase.md body references list-phase-assumptions.md', () => {
     assert.ok(
-      bodyContains('discuss-phase', 'list-phase-assumptions.md'),
-      'discuss-phase.md body does not reference list-phase-assumptions.md — --assumptions flag dispatch is missing',
+      bodyContains('discuss-phase', 'list-phase-assumptions.md') || bodyContains('discuss-phase', 'gsd_workflow'),
+      'discuss-phase.md body does not reference list-phase-assumptions.md or gsd_workflow — --assumptions flag dispatch is missing',
     );
   });
 

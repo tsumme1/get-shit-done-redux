@@ -20,11 +20,6 @@ Purpose: Confirm what Claude built actually works from user's perspective. One t
 Output: {phase_num}-UAT.md tracking all test results. If issues found: diagnosed gaps, verified fix plans ready for /gsd:execute-phase
 </objective>
 
-<execution_context>
-@~/.claude/get-shit-done/workflows/verify-work.md
-@~/.claude/get-shit-done/templates/UAT.md
-</execution_context>
-
 <context>
 Phase: $ARGUMENTS (optional)
 - If provided: Test specific phase (e.g., "4")
@@ -34,6 +29,19 @@ Context files are resolved inside the workflow (`init verify-work`) and delegate
 </context>
 
 <process>
-Execute end-to-end.
-Preserve all workflow gates (session management, test presentation, diagnosis, fix planning, routing).
+Extract the phase number from $ARGUMENTS. Then call the gsd-guardian MCP tool `gsd_workflow` with:
+- workflow: "verify-work"
+- args: '{"phase": "<phase_number>"}'
+
+The server returns stages one at a time. For each stage:
+1. Read the stage `instructions` and execute them using the tools listed in `hints`
+2. When instructions say "Call the gsd-guardian MCP tool 'X'", use `call_mcp_tool(ServerName: "gsd-guardian", ToolName: "X", ...)`
+3. When instructions reference agent tools (view_file, run_command, write_to_file, invoke_subagent), use those directly
+4. When instructions say to ask the user, use ask_question
+5. Collect all `required_outputs` specified in the stage
+6. Call `gsd_workflow` again with the `session_id` and your `stage_outputs` as a JSON string
+
+Repeat until the server returns `nextStageNeeded: false`.
+
+**CRITICAL:** You MUST keep calling gsd_workflow until completion. Do not stop mid-workflow. Each stage depends on the previous stage's outputs. If a stage fails, report the error in stage_outputs and let the server decide the next action.
 </process>

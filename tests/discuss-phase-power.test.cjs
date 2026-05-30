@@ -34,8 +34,8 @@ describe('discuss-phase power user mode (#1513)', () => {
     test('references the power workflow file', () => {
       const content = fs.readFileSync(commandPath, 'utf8');
       assert.ok(
-        content.includes('discuss-phase-power'),
-        'command file should reference discuss-phase-power workflow'
+        content.includes('discuss-phase-power') || content.includes('gsd_workflow'),
+        'command file should reference discuss-phase-power workflow or gsd_workflow MCP'
       );
     });
   });

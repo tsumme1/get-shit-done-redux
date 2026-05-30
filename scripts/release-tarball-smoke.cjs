@@ -218,7 +218,18 @@ function parseWorkflowRef(mdContent) {
     }
   }
 
-  return atImportResult !== null ? atImportResult : lastInlineResult;
+  if (atImportResult !== null) return atImportResult;
+  if (lastInlineResult !== null) return lastInlineResult;
+
+  // Form 3: MCP gsd_workflow pattern — command uses gsd_workflow MCP tool.
+  // Extract the workflow name from: workflow: "discuss-phase" or similar.
+  const mcpMatch = mdContent.match(/workflow:\s*["']([a-z][a-z0-9-]*)["']/i);
+  if (mcpMatch && mdContent.includes('gsd_workflow')) {
+    // Return a synthetic reference to the stages JSON file
+    return `stages/${mcpMatch[1]}.stages.json`;
+  }
+
+  return null;
 }
 
 /**

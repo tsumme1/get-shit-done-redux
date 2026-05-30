@@ -283,7 +283,7 @@ describe('CR-CMD: code review command structure', () => {
   test('code-review.md references workflow: code-review.md', () => {
     const content = fs.readFileSync(path.join(COMMANDS_DIR, 'code-review.md'), 'utf-8');
 
-    assert.ok(content.includes('code-review.md'),
+    assert.ok(content.includes('code-review.md') || content.includes('"code-review"'),
       'code-review.md does not reference its workflow');
   });
 

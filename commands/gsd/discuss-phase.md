@@ -29,15 +29,6 @@ Extract implementation decisions that downstream agents need — researcher and 
 **Output:** `{phase_num}-CONTEXT.md` — decisions clear enough that downstream agents can act without asking the user again
 </objective>
 
-<execution_context>
-Workflow files are loaded on-demand in the <process> section below — not upfront.
-Do not pre-load any workflow files before reading the mode routing instructions.
-</execution_context>
-
-<runtime_note>
-**Copilot (VS Code):** Use `vscode_askquestions` wherever this workflow calls `AskUserQuestion`. They are equivalent — `vscode_askquestions` is the VS Code Copilot implementation of the same interactive question API.
-</runtime_note>
-
 <context>
 Phase number: $ARGUMENTS (required)
 
@@ -45,32 +36,19 @@ Context files are resolved in-workflow using `init phase-op` and roadmap/state t
 </context>
 
 <process>
-**Mode routing:**
-```bash
-DISCUSS_MODE=$(gsd-tools query config-get workflow.discuss_mode 2>/dev/null || echo "discuss")
-```
+Extract the phase number from $ARGUMENTS. Then call the gsd-guardian MCP tool `gsd_workflow` with:
+- workflow: "discuss-phase"
+- args: '{"phase": "<phase_number>"}'
 
-If `--assumptions` is in $ARGUMENTS:
-Read and execute `~/.claude/get-shit-done/workflows/list-phase-assumptions.md` end-to-end.
-Stop here.
+The server returns stages one at a time. For each stage:
+1. Read the stage `instructions` and execute them using the tools listed in `hints`
+2. When instructions say "Call the gsd-guardian MCP tool 'X'", use `call_mcp_tool(ServerName: "gsd-guardian", ToolName: "X", ...)`
+3. When instructions reference agent tools (view_file, run_command, write_to_file, invoke_subagent), use those directly
+4. When instructions say to ask the user, use ask_question
+5. Collect all `required_outputs` specified in the stage
+6. Call `gsd_workflow` again with the `session_id` and your `stage_outputs` as a JSON string
 
-Otherwise, if `DISCUSS_MODE` is `"assumptions"`:
-Read and execute `~/.claude/get-shit-done/workflows/discuss-phase-assumptions.md` end-to-end.
+Repeat until the server returns `nextStageNeeded: false`.
 
-Otherwise (`"discuss"` / unset / any other value):
-Read and execute `~/.claude/get-shit-done/workflows/discuss-phase.md` end-to-end.
-
-**MANDATORY:** Read the appropriate workflow file BEFORE taking any action. The objective and success_criteria sections in this command file are summaries — the workflow file contains the complete step-by-step process with all required behaviors, config checks, and interaction patterns. Do not improvise from the summary.
-
-**Lazy loading:** `templates/context.md` is loaded inside the `write_context` step of the active workflow. `discuss-phase-power.md` is loaded inside `discuss-phase.md` when `--power` is detected. Do not load either here.
+**CRITICAL:** You MUST keep calling gsd_workflow until completion. Do not stop mid-workflow. Each stage depends on the previous stage's outputs. If a stage fails, report the error in stage_outputs and let the server decide the next action.
 </process>
-
-<success_criteria>
-- Prior context loaded and applied (no re-asking decided questions)
-- Gray areas identified through intelligent analysis
-- User chose which areas to discuss
-- Each selected area explored until satisfied
-- Scope creep redirected to deferred ideas
-- CONTEXT.md captures decisions, not vague vision
-- User knows next steps
-</success_criteria>

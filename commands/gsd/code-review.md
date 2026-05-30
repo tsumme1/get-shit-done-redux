@@ -30,10 +30,6 @@ Arguments:
 Output: {padded_phase}-REVIEW.md in phase directory + inline summary of findings
 </objective>
 
-<execution_context>
-@~/.claude/get-shit-done/workflows/code-review.md
-</execution_context>
-
 <context>
 Phase: $ARGUMENTS (first positional argument is phase number)
 
@@ -45,15 +41,19 @@ Context files (CLAUDE.md, SUMMARY.md, phase state) are resolved inside the workf
 </context>
 
 <process>
-This command is a thin dispatch layer. It parses arguments and delegates to the workflow.
+Extract the phase number from $ARGUMENTS. Then call the gsd-guardian MCP tool `gsd_workflow` with:
+- workflow: "code-review"
+- args: '{"phase": "<phase_number>"}'
 
-Execute end-to-end.
+The server returns stages one at a time. For each stage:
+1. Read the stage `instructions` and execute them using the tools listed in `hints`
+2. When instructions say "Call the gsd-guardian MCP tool 'X'", use `call_mcp_tool(ServerName: "gsd-guardian", ToolName: "X", ...)`
+3. When instructions reference agent tools (view_file, run_command, write_to_file, invoke_subagent), use those directly
+4. When instructions say to ask the user, use ask_question
+5. Collect all `required_outputs` specified in the stage
+6. Call `gsd_workflow` again with the `session_id` and your `stage_outputs` as a JSON string
 
-The workflow (not this command) enforces these gates:
-- Phase validation (before config gate)
-- Config gate check (workflow.code_review)
-- File scoping (--files override > SUMMARY.md > git diff fallback)
-- Empty scope check (skip if no files)
-- Agent spawning (gsd-code-reviewer)
-- Result presentation (inline summary + next steps)
+Repeat until the server returns `nextStageNeeded: false`.
+
+**CRITICAL:** You MUST keep calling gsd_workflow until completion. Do not stop mid-workflow. Each stage depends on the previous stage's outputs. If a stage fails, report the error in stage_outputs and let the server decide the next action.
 </process>

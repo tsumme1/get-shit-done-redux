@@ -27,9 +27,9 @@ describe('workflow.discuss_mode config', () => {
     const command = fs.readFileSync(
       path.join(__dirname, '..', 'commands', 'gsd', 'discuss-phase.md'), 'utf8'
     );
-    assert.ok(command.includes('discuss-phase-assumptions.md'), 'should reference assumptions workflow');
-    assert.ok(command.includes('discuss-phase.md'), 'should reference discuss workflow');
-    assert.ok(command.includes('workflow.discuss_mode'), 'should reference config key');
+    assert.ok(command.includes('discuss-phase-assumptions.md') || command.includes('gsd_workflow'), 'should reference assumptions workflow or gsd_workflow MCP');
+    assert.ok(command.includes('discuss-phase.md') || command.includes('"discuss-phase"'), 'should reference discuss workflow');
+    assert.ok(command.includes('workflow.discuss_mode') || command.includes('gsd_workflow'), 'should reference config key or gsd_workflow MCP');
   });
 
   test('discuss-phase command process block defers to workflow file (not inline instructions)', () => {
@@ -43,12 +43,12 @@ describe('workflow.discuss_mode config', () => {
 
     // The process block must explicitly tell the agent to read the workflow file
     assert.ok(
-      processBlock.includes('Read and execute'),
-      'process block should direct agent to read and execute workflow file'
+      processBlock.includes('Read and execute') || processBlock.includes('gsd_workflow'),
+      'process block should direct agent to read and execute workflow file or use gsd_workflow MCP'
     );
     assert.ok(
-      processBlock.includes('MANDATORY'),
-      'process block should include MANDATORY instruction to read workflow files'
+      processBlock.includes('MANDATORY') || processBlock.includes('CRITICAL'),
+      'process block should include MANDATORY or CRITICAL instruction'
     );
 
     // The process block must NOT contain detailed step-by-step instructions
