@@ -437,7 +437,7 @@ async function runGsdQuery(verb, args = []) {
   }
 
   return new Promise((resolve) => {
-    const cmdArgs = ['query', verb, ...args];
+    const cmdArgs = [...verb.split('.'), ...args];
     const child = spawn('node', [GSD_TOOLS_PATH, ...cmdArgs], {
       cwd: PROJECT_ROOT,
       env: { ...process.env, GSD_PROJECT_ROOT: PROJECT_ROOT },
